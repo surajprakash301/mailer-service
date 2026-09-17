@@ -1,7 +1,7 @@
 import OpenAI from "openai";
 import { config } from "./config.js";
 import { logError } from "./errors.js";
-import { geminiJson, hasLiveGemini, geminiAvailable } from "./gemini.js";
+import { geminiJson, geminiAvailable } from "./gemini.js";
 import { hasLiveOpenAI } from "./openaiLive.js";
 import { SYSTEM_PROMPT, userPrompt, countWords } from "./prompts.js";
 import { templatePitch } from "./researchPrompt.js";
