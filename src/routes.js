@@ -62,6 +62,10 @@ router.get("/health", asyncRoute(async (_req, res) => {
     model: hasLiveGemini() ? config.geminiModel : config.openaiModel,
     liveGemini: hasLiveGemini(),
     liveOpenAI: hasLiveOpenAI(),
+    /** Why gather may show source:fallback — Gemini key missing on this host */
+    geminiHint: hasLiveGemini()
+      ? "ok"
+      : "Set GEMINI_API_KEY on Render Environment, then redeploy",
     whatsappDryRun: config.whatsappDryRun,
     brand: LOKY_BRAND.name,
   });

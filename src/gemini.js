@@ -39,6 +39,7 @@ export async function geminiJson({ system = "", user, temperature = 0.4 } = {}) 
       "Content-Type": "application/json",
       "X-goog-api-key": config.geminiApiKey,
     },
+    signal: AbortSignal.timeout(12_000),
     body: JSON.stringify({
       contents,
       generationConfig: {

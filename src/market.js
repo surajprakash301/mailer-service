@@ -116,9 +116,10 @@ export async function pickBoomingIndustries(limit = 3) {
     }
   }
 
-  if (hasLiveOpenAI()) {
+  // Skip OpenAI when Gemini is configured — don't burn cron budget on a dead key.
+  if (!hasLiveGemini() && hasLiveOpenAI()) {
     try {
-      const openai = new OpenAI({ apiKey: config.openaiApiKey });
+      const openai = new OpenAI({ apiKey: config.openaiApiKey, timeout: 8_000 });
       const completion = await openai.chat.completions.create({
         model: config.openaiModel,
         temperature: 0.4,
