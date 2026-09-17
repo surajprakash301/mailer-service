@@ -9,7 +9,7 @@ on:
 jobs:
   send:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 45
     steps:
       - name: Trigger Render send campaign
         env:
@@ -22,9 +22,10 @@ jobs:
             exit 1
           fi
           # Wake cold instance
-          curl -fsS -m 60 "${APP_URL}/api/health" >/dev/null || true
-          sleep 5
-          curl -fsS -m 120 -X POST "${APP_URL}/api/campaigns/run" \
+          curl -fsS -m 90 "${APP_URL}/api/health" >/dev/null || true
+          sleep 8
+          # Allow time to draft+send up to ~25 leads
+          curl -fsS -m 600 -X POST "${APP_URL}/api/campaigns/run" \
             -H "Content-Type: application/json" \
             -H "x-cron-secret: ${CRON_SECRET}" \
             -d '{}'
