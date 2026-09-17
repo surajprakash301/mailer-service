@@ -81,8 +81,7 @@ Free web hosts **sleep when idle**, so in-process `node-cron` will miss 7:00 / 8
 | Variable | Value |
 | --- | --- |
 | `GEMINI_API_KEY` | Google AI Studio / Generative Language key |
-| `GEMINI_MODEL` | `gemini-flash-latest` (optional) |
-| `OPENAI_API_KEY` | optional fallback if Gemini unset |
+| `GEMINI_MODEL` | `gemini-3.1-flash-lite` (lite = less 503 than `*-latest`) |
 | `RESEND_API_KEY` | your key |
 | `FROM_EMAIL` | `Loky Media <outreach@lokymedia.com>` |
 | `REPLY_TO` | `support@lokymedia.com` |

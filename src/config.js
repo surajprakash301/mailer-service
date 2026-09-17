@@ -10,7 +10,7 @@ export const config = {
   openaiApiKey: required("OPENAI_API_KEY"),
   openaiModel: process.env.OPENAI_MODEL?.trim() || "gpt-4o-mini",
   geminiApiKey: required("GEMINI_API_KEY"),
-  geminiModel: process.env.GEMINI_MODEL?.trim() || "gemini-flash-latest",
+  geminiModel: process.env.GEMINI_MODEL?.trim() || "gemini-3.1-flash-lite",
   resendApiKey: required("RESEND_API_KEY"),
   fromEmail: process.env.FROM_EMAIL?.trim() || "Loky Media <hello@lokymedia.com>",
   replyTo: process.env.REPLY_TO?.trim() || "support@lokymedia.com",

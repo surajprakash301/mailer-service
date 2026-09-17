@@ -1,6 +1,13 @@
 import { config } from "./config.js";
 import { logError } from "./errors.js";
 
+/** Prefer lite / pinned models over *-latest (those hit 503 high-demand often). */
+const MODEL_FALLBACKS = [
+  "gemini-3.1-flash-lite",
+  "gemini-3.5-flash-lite",
+  "gemini-2.5-flash",
+];
+
 /**
  * True when GEMINI_API_KEY is set (Google Generative Language API).
  */
@@ -9,31 +16,21 @@ export function hasLiveGemini() {
   return Boolean(key) && key.length > 20 && !key.includes("...");
 }
 
-function modelUrl() {
-  const model = encodeURIComponent(config.geminiModel || "gemini-flash-latest");
-  return `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+function modelCandidates() {
+  const primary = config.geminiModel || "gemini-3.1-flash-lite";
+  return [...new Set([primary, ...MODEL_FALLBACKS])];
 }
 
-/**
- * Call Gemini generateContent and return parsed JSON (or throw).
- * @param {{ system?: string, user: string, temperature?: number }} opts
- */
-export async function geminiJson({ system = "", user, temperature = 0.4 } = {}) {
-  if (!hasLiveGemini()) {
-    throw new Error("GEMINI_API_KEY is not configured");
-  }
+function modelUrl(model) {
+  return `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
+}
 
-  const contents = [];
-  if (system) {
-    contents.push({
-      role: "user",
-      parts: [{ text: `${system}\n\n---\n\n${user}` }],
-    });
-  } else {
-    contents.push({ role: "user", parts: [{ text: user }] });
-  }
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
-  const res = await fetch(modelUrl(), {
+async function generateOnce({ model, contents, temperature }) {
+  const res = await fetch(modelUrl(model), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -59,7 +56,10 @@ export async function geminiJson({ system = "", user, temperature = 0.4 } = {}) 
 
   if (!res.ok) {
     const msg = data?.error?.message || rawText.slice(0, 300);
-    throw new Error(`Gemini ${res.status}: ${msg}`);
+    const err = new Error(`Gemini ${res.status}: ${msg}`);
+    err.status = res.status;
+    err.retryable = res.status === 503 || res.status === 429;
+    throw err;
   }
 
   const text =
@@ -73,9 +73,48 @@ export async function geminiJson({ system = "", user, temperature = 0.4 } = {}) 
     return JSON.parse(text);
   } catch (err) {
     logError("geminiJson parse", err);
-    // Sometimes models wrap JSON in fences
     const m = text.match(/\{[\s\S]*\}/);
     if (m) return JSON.parse(m[0]);
     throw new Error("Gemini returned non-JSON content");
   }
+}
+
+/**
+ * Call Gemini generateContent and return parsed JSON (or throw).
+ * Retries on 503/429 and walks a lite → flash model ladder.
+ * @param {{ system?: string, user: string, temperature?: number }} opts
+ */
+export async function geminiJson({ system = "", user, temperature = 0.4 } = {}) {
+  if (!hasLiveGemini()) {
+    throw new Error("GEMINI_API_KEY is not configured");
+  }
+
+  const contents = [];
+  if (system) {
+    contents.push({
+      role: "user",
+      parts: [{ text: `${system}\n\n---\n\n${user}` }],
+    });
+  } else {
+    contents.push({ role: "user", parts: [{ text: user }] });
+  }
+
+  let lastErr;
+  for (const model of modelCandidates()) {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        return await generateOnce({ model, contents, temperature });
+      } catch (err) {
+        lastErr = err;
+        logError(`geminiJson ${model} try=${attempt + 1}`, err);
+        if (err?.retryable && attempt === 0) {
+          await sleep(800);
+          continue;
+        }
+        // Non-retryable or second try → next model
+        break;
+      }
+    }
+  }
+  throw lastErr || new Error("Gemini request failed");
 }
