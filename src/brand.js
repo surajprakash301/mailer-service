@@ -231,24 +231,28 @@ export function buildLokyEmailHtml({ subject, body, lead = {} } = {}) {
               <p style="margin:0 0 6px;font-family:${b.font};font-size:12px;letter-spacing:0.08em;text-transform:uppercase;color:${b.green};font-weight:700;">Outreach for ${company}</p>
               <p style="margin:0 0 22px;font-family:${b.font};font-size:14px;line-height:1.5;color:${b.muted};">${location}</p>
               ${blocks}
-              <table role="presentation" cellspacing="0" cellpadding="0" style="margin:6px 0 26px;border-collapse:separate;">
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin:6px 0 26px;width:100%;border-collapse:separate;">
                 <tr>
-                  <td align="center" bgcolor="${b.black}" style="background-color:${b.black};border-radius:999px;mso-padding-alt:12px 22px;">
+                  <td align="center" bgcolor="${b.black}" style="background-color:${b.black};border-radius:12px;mso-padding-alt:14px 20px;">
                     <a
                       class="loky-cta"
                       href="${b.inventoryUrl}"
-                      style="display:inline-block;padding:12px 22px;font-family:${b.font};font-size:14px;font-weight:600;line-height:18px;color:${b.green} !important;text-decoration:none !important;border:0;background-color:${b.black};border-radius:999px;"
+                      style="display:block;width:100%;box-sizing:border-box;padding:14px 20px;font-family:${b.font};font-size:15px;font-weight:600;line-height:1.4;text-align:center;color:${b.green} !important;text-decoration:none !important;border:0;background-color:${b.black};border-radius:12px;"
                     >
                       <img src="${screenIcon}" width="18" height="18" alt="" style="display:inline-block;width:18px;height:18px;border:0;vertical-align:middle;margin-right:8px;" />
                       <span style="color:${b.green} !important;text-decoration:none !important;vertical-align:middle;">${escapeHtml(b.ctaLabel)}</span>
                     </a>
                   </td>
-                  <td width="12" style="font-size:0;line-height:0;">&nbsp;</td>
-                  <td align="center" bgcolor="${b.whatsappGreen}" style="background-color:${b.whatsappGreen};border-radius:999px;mso-padding-alt:12px 22px;">
+                </tr>
+                <tr>
+                  <td height="12" style="height:12px;font-size:0;line-height:0;">&nbsp;</td>
+                </tr>
+                <tr>
+                  <td align="center" bgcolor="${b.whatsappGreen}" style="background-color:${b.whatsappGreen};border-radius:12px;mso-padding-alt:14px 20px;">
                     <a
                       class="loky-wa"
                       href="${waUrl}"
-                      style="display:inline-block;padding:12px 22px;font-family:${b.font};font-size:14px;font-weight:600;line-height:18px;color:#ffffff !important;text-decoration:none !important;border:0;background-color:${b.whatsappGreen};border-radius:999px;"
+                      style="display:block;width:100%;box-sizing:border-box;padding:14px 20px;font-family:${b.font};font-size:15px;font-weight:600;line-height:1.4;text-align:center;color:#ffffff !important;text-decoration:none !important;border:0;background-color:${b.whatsappGreen};border-radius:12px;"
                     >
                       <img src="${waIcon}" width="18" height="18" alt="" style="display:inline-block;width:18px;height:18px;border:0;vertical-align:middle;margin-right:8px;" />
                       <span style="color:#ffffff !important;text-decoration:none !important;vertical-align:middle;">${escapeHtml(b.whatsappCtaLabel)}</span>
