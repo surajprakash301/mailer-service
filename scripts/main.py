@@ -117,12 +117,20 @@ def _normalize_record(lead_data: dict, *, prompt: str, item: dict) -> dict:
     return out
 
 
+DEFAULT_GEMINI_MODEL = "gemini-3.6-flash"
+
+
+def _gemini_model() -> str:
+    # Empty GitHub vars.GEMINI_MODEL must not win over the default
+    return (os.environ.get("GEMINI_MODEL") or DEFAULT_GEMINI_MODEL).strip() or DEFAULT_GEMINI_MODEL
+
+
 def _generate_lead(prompt: str) -> dict:
     """Grounded structured JSON; fall back to grounded text + schema prompt."""
+    model = _gemini_model()
     try:
         response = gemini_client.models.generate_content(
-            model=os.environ.get("GEMINI_MODEL", "gemini-2.5-flash").strip()
-            or "gemini-2.5-flash",
+            model=model,
             contents=prompt,
             config=types.GenerateContentConfig(
                 tools=[types.Tool(google_search=types.GoogleSearch())],
@@ -132,10 +140,9 @@ def _generate_lead(prompt: str) -> dict:
         )
         return json.loads(response.text)
     except Exception as first_err:
-        print(f"[warn] structured+grounding failed: {first_err}", file=sys.stderr)
+        print(f"[warn] structured+grounding failed ({model}): {first_err}", file=sys.stderr)
         response = gemini_client.models.generate_content(
-            model=os.environ.get("GEMINI_MODEL", "gemini-2.5-flash").strip()
-            or "gemini-2.5-flash",
+            model=model,
             contents=(
                 f"{prompt}\n\nReturn ONLY valid JSON matching this schema:\n"
                 f"{json.dumps(LeadRecord.model_json_schema(), indent=2)}"
