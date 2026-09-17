@@ -1,6 +1,7 @@
 import OpenAI from "openai";
 import { config } from "./config.js";
 import { logError } from "./errors.js";
+import { geminiJson, hasLiveGemini } from "./gemini.js";
 import { hasLiveOpenAI } from "./openaiLive.js";
 
 const FALLBACK_NICHES = [
@@ -75,7 +76,7 @@ export function fallbackBoomingIndustries(limit = 3) {
   return picked.map((item) => ({ ...item, source: "fallback" }));
 }
 
-function normalizeIndustries(raw, limit) {
+function normalizeIndustries(raw, limit, source) {
   const list = Array.isArray(raw?.industries) ? raw.industries : Array.isArray(raw) ? raw : [];
   const cleaned = [];
   for (const row of list) {
@@ -86,7 +87,7 @@ function normalizeIndustries(raw, limit) {
       industry,
       why: String(row?.why || "").trim(),
       query,
-      source: "openai",
+      source,
     });
     if (cleaned.length >= limit) break;
   }
@@ -95,34 +96,44 @@ function normalizeIndustries(raw, limit) {
 
 /**
  * AI picks booming Patna industries for DOOH outreach.
- * Falls back to a rotating niche list when OpenAI is unavailable.
+ * Prefers Gemini, then OpenAI; falls back to a rotating niche list.
  */
 export async function pickBoomingIndustries(limit = 3) {
   const n = Math.max(1, Math.min(Number(limit) || 3, 5));
+  const user = `Return exactly ${n} industries for this morning's Patna DOOH outreach wave.`;
 
-  if (!hasLiveOpenAI()) {
-    return fallbackBoomingIndustries(n);
+  if (hasLiveGemini()) {
+    try {
+      const parsed = await geminiJson({
+        system: MARKET_PROMPT,
+        user,
+        temperature: 0.4,
+      });
+      const industries = normalizeIndustries(parsed, n, "gemini");
+      if (industries.length > 0) return industries;
+    } catch (err) {
+      logError("market.pickBoomingIndustries.gemini", err);
+    }
   }
 
-  try {
-    const openai = new OpenAI({ apiKey: config.openaiApiKey });
-    const completion = await openai.chat.completions.create({
-      model: config.openaiModel,
-      temperature: 0.4,
-      response_format: { type: "json_object" },
-      messages: [
-        { role: "system", content: MARKET_PROMPT },
-        {
-          role: "user",
-          content: `Return exactly ${n} industries for this morning's Patna DOOH outreach wave.`,
-        },
-      ],
-    });
-    const parsed = JSON.parse(completion.choices[0]?.message?.content || "{}");
-    const industries = normalizeIndustries(parsed, n);
-    if (industries.length > 0) return industries;
-  } catch (err) {
-    logError("market.pickBoomingIndustries", err);
+  if (hasLiveOpenAI()) {
+    try {
+      const openai = new OpenAI({ apiKey: config.openaiApiKey });
+      const completion = await openai.chat.completions.create({
+        model: config.openaiModel,
+        temperature: 0.4,
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: MARKET_PROMPT },
+          { role: "user", content: user },
+        ],
+      });
+      const parsed = JSON.parse(completion.choices[0]?.message?.content || "{}");
+      const industries = normalizeIndustries(parsed, n, "openai");
+      if (industries.length > 0) return industries;
+    } catch (err) {
+      logError("market.pickBoomingIndustries.openai", err);
+    }
   }
 
   return fallbackBoomingIndustries(n);

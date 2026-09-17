@@ -1,16 +1,17 @@
 import OpenAI from "openai";
 import { config } from "./config.js";
 import { logError } from "./errors.js";
+import { geminiJson, hasLiveGemini } from "./gemini.js";
 import { hasLiveOpenAI } from "./openaiLive.js";
 import { SYSTEM_PROMPT, userPrompt, countWords } from "./prompts.js";
 import { templatePitch } from "./researchPrompt.js";
 
-function client() {
+function openaiClient() {
   return new OpenAI({ apiKey: config.openaiApiKey });
 }
 
 export async function generatePitch(lead) {
-  if (hasLiveOpenAI()) {
+  if (hasLiveGemini() || hasLiveOpenAI()) {
     try {
       return await generatePitchInner(lead);
     } catch (err) {
@@ -21,24 +22,34 @@ export async function generatePitch(lead) {
   return { ...copy, wordCount: countWords(copy.body) };
 }
 
-async function generatePitchInner(lead) {
-  const openai = client();
+async function generateJsonCopy({ system, user, temperature }) {
+  if (hasLiveGemini()) {
+    return geminiJson({ system, user, temperature });
+  }
+  const openai = openaiClient();
   const completion = await openai.chat.completions.create({
     model: config.openaiModel,
-    temperature: 0.6,
+    temperature,
     response_format: { type: "json_object" },
     messages: [
-      { role: "system", content: SYSTEM_PROMPT },
-      { role: "user", content: userPrompt(lead) },
+      { role: "system", content: system },
+      { role: "user", content: user },
     ],
   });
-
   const raw = completion.choices[0]?.message?.content || "{}";
+  return JSON.parse(raw);
+}
+
+async function generatePitchInner(lead) {
   let parsed;
   try {
-    parsed = JSON.parse(raw);
+    parsed = await generateJsonCopy({
+      system: SYSTEM_PROMPT,
+      user: userPrompt(lead),
+      temperature: 0.6,
+    });
   } catch {
-    throw new Error("OpenAI returned non-JSON copy");
+    throw new Error("LLM returned non-JSON copy");
   }
 
   const subject = String(parsed.subject || "").trim();
@@ -49,23 +60,15 @@ async function generatePitchInner(lead) {
 
   let wordCount = countWords(body);
   if (wordCount > 120) {
-    const retry = await openai.chat.completions.create({
-      model: config.openaiModel,
-      temperature: 0.3,
-      response_format: { type: "json_object" },
-      messages: [
-        { role: "system", content: SYSTEM_PROMPT },
-        {
-          role: "user",
-          content: `Shorten this email to under 120 words. Keep the same facts, CTA, and personalization.\n\nSubject: ${subject}\n\n${body}\n\nReturn JSON {"subject":"...","body":"..."}`,
-        },
-      ],
-    });
     let shortened;
     try {
-      shortened = JSON.parse(retry.choices[0]?.message?.content || "{}");
+      shortened = await generateJsonCopy({
+        system: SYSTEM_PROMPT,
+        user: `Shorten this email to under 120 words. Keep the same facts, CTA, and personalization.\n\nSubject: ${subject}\n\n${body}\n\nReturn JSON {"subject":"...","body":"..."}`,
+        temperature: 0.3,
+      });
     } catch {
-      throw new Error("OpenAI shorten step returned non-JSON copy");
+      throw new Error("LLM shorten step returned non-JSON copy");
     }
     if (shortened.subject) parsed.subject = String(shortened.subject).trim();
     if (shortened.body) body = String(shortened.body).trim();

@@ -54,7 +54,7 @@ async function refresh() {
     api("/health"),
   ]);
 
-  const ai = health.liveOpenAI ? health.model : "template draft";
+  const ai = health.liveGemini || health.liveOpenAI ? health.model : "template draft";
   metaEl.textContent = `${health.cron} · ${health.timezone} · ${health.dryRun ? "DRY RUN" : "LIVE"} · ${ai}`;
   statsEl.innerHTML = [
     stat("Leads", stats.total),

@@ -1,6 +1,7 @@
 import OpenAI from "openai";
 import { config } from "./config.js";
 import { logError } from "./errors.js";
+import { geminiJson, hasLiveGemini } from "./gemini.js";
 import { hasLiveOpenAI } from "./openaiLive.js";
 import { RESEARCH_PROMPT } from "./researchPrompt.js";
 
@@ -193,27 +194,39 @@ async function collectPages(query, website) {
 }
 
 async function llmExtract(query, pages, snippets) {
-  if (!hasLiveOpenAI()) return null;
-  const openai = new OpenAI({ apiKey: config.openaiApiKey });
+  if (!hasLiveGemini() && !hasLiveOpenAI()) return null;
   const packed = pages
     .map((p) => `URL: ${p.url}\nEmails seen: ${p.emails.join(", ") || "none"}\n${p.text.slice(0, 4000)}`)
     .join("\n\n---\n\n");
+  const user = `Operator query: ${query}\n\nSearch titles:\n${snippets}\n\nPage text:\n${packed || "(none)"}`;
+
+  if (hasLiveGemini()) {
+    try {
+      return await geminiJson({
+        system: RESEARCH_PROMPT,
+        user,
+        temperature: 0.2,
+      });
+    } catch (err) {
+      logError("research.llmExtract.gemini", err);
+    }
+  }
+
+  if (!hasLiveOpenAI()) return null;
+  const openai = new OpenAI({ apiKey: config.openaiApiKey });
   const completion = await openai.chat.completions.create({
     model: config.openaiModel,
     temperature: 0.2,
     response_format: { type: "json_object" },
     messages: [
       { role: "system", content: RESEARCH_PROMPT },
-      {
-        role: "user",
-        content: `Operator query: ${query}\n\nSearch titles:\n${snippets}\n\nPage text:\n${packed || "(none)"}`,
-      },
+      { role: "user", content: user },
     ],
   });
   try {
     return JSON.parse(completion.choices[0]?.message?.content || "{}");
   } catch (err) {
-    logError("research.llmExtract parse", err);
+    logError("research.llmExtract.openai parse", err);
     return null;
   }
 }

@@ -4,6 +4,7 @@ import { buildLokyEmailHtml, LOKY_BRAND } from "./brand.js";
 import { config } from "./config.js";
 import { logError } from "./errors.js";
 import { hasLiveOpenAI } from "./openaiLive.js";
+import { hasLiveGemini } from "./gemini.js";
 import { runDiscoveryPipeline, runResearchPipeline, importProspectsPipeline, runMorningGather } from "./pipeline.js";
 import { researchProspect } from "./research.js";
 import { checkWhatsAppNumber } from "./whatsapp.js";
@@ -58,7 +59,8 @@ router.get("/health", asyncRoute(async (_req, res) => {
     cronSecretRequired: Boolean(config.cronSecret),
     disableInternalCron: config.disableInternalCron,
     lastCronRuns: cronRuns,
-    model: config.openaiModel,
+    model: hasLiveGemini() ? config.geminiModel : config.openaiModel,
+    liveGemini: hasLiveGemini(),
     liveOpenAI: hasLiveOpenAI(),
     whatsappDryRun: config.whatsappDryRun,
     brand: LOKY_BRAND.name,

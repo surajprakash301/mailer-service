@@ -80,7 +80,9 @@ Free web hosts **sleep when idle**, so in-process `node-cron` will miss 7:00 / 8
 
 | Variable | Value |
 | --- | --- |
-| `OPENAI_API_KEY` | your key |
+| `GEMINI_API_KEY` | Google AI Studio / Generative Language key |
+| `GEMINI_MODEL` | `gemini-flash-latest` (optional) |
+| `OPENAI_API_KEY` | optional fallback if Gemini unset |
 | `RESEND_API_KEY` | your key |
 | `FROM_EMAIL` | `Loky Media <outreach@lokymedia.com>` |
 | `REPLY_TO` | `support@lokymedia.com` |
@@ -120,7 +122,7 @@ Repo: [surajprakash301/mailer-service](https://github.com/surajprakash301/mailer
 Prefer this only if you pay for always-on compute. Leave `DISABLE_INTERNAL_CRON` unset so built-in 7:00 / 8:45 crons run, and mount a volume at `DATA_DIR=/data`.
 
 1. [Railway](https://railway.app) → **New Project** → **Deploy from GitHub** → `mailer-service`
-2. Set the same secrets as Render (`OPENAI_API_KEY`, `RESEND_API_KEY`, `FROM_EMAIL`, `REPLY_TO`, `CRON_SECRET`, `DRY_RUN`)
+2. Set the same secrets as Render (`GEMINI_API_KEY`, `RESEND_API_KEY`, `FROM_EMAIL`, `REPLY_TO`, `CRON_SECRET`, `DRY_RUN`)
 3. Attach a volume at `/data`
 4. Check `GET /api/health` then optional manual gather with `x-cron-secret`
 
