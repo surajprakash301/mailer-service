@@ -36,7 +36,7 @@ export const config = {
   /** Server-only; use for cron/RLS bypass. Never expose to the browser. */
   supabaseServiceRoleKey: required("SUPABASE_SERVICE_ROLE_KEY"),
   /** Table used by gather/send when service role is configured */
-  supabaseLeadsTable: process.env.SUPABASE_LEADS_TABLE?.trim() || "emailer_table",
+  supabaseLeadsTable: process.env.SUPABASE_LEADS_TABLE?.trim() || "emailer-table",
   cronSecret: required("CRON_SECRET"),
   /** Free hosts sleep; use external cron + set this true to avoid double runs. */
   disableInternalCron: process.env.DISABLE_INTERNAL_CRON === "true",

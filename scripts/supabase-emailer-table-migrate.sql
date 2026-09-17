@@ -1,7 +1,7 @@
--- Run once in Supabase → SQL Editor (public.emailer_table)
--- Adds mailer draft/send columns + unique keys for Python/Node upserts.
+-- Run once in Supabase → SQL Editor
+-- Table name uses hyphen: public."emailer-table"
 
-alter table public.emailer_table
+alter table public."emailer-table"
   add column if not exists subject text default '',
   add column if not exists body text default '',
   add column if not exists word_count integer default 0,
@@ -11,16 +11,14 @@ alter table public.emailer_table
   add column if not exists updated_at timestamptz default now(),
   add column if not exists whatsapp jsonb;
 
--- Blank emails break UNIQUE(email); clear or fill them before indexing
-update public.emailer_table
+update public."emailer-table"
 set email = null
 where email is not null and trim(email) = '';
 
 create unique index if not exists emailer_table_email_uidx
-  on public.emailer_table (email)
+  on public."emailer-table" (email)
   where email is not null;
 
--- Required for scripts/main.py upsert(on_conflict="company")
 create unique index if not exists emailer_table_company_uidx
-  on public.emailer_table (company)
+  on public."emailer-table" (company)
   where company is not null;

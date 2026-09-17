@@ -37,7 +37,7 @@ def require_env(name: str) -> str:
     return value
 
 
-TABLE_NAME = (os.environ.get("SUPABASE_LEADS_TABLE") or "emailer_table").strip()
+TABLE_NAME = (os.environ.get("SUPABASE_LEADS_TABLE") or "emailer-table").strip()
 
 
 class LeadRecord(BaseModel):
