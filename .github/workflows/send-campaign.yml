@@ -1,0 +1,30 @@
+# Send cron: wake Render and dispatch ready/researched leads (08:45 IST = 03:15 UTC)
+name: Send campaign via Render
+
+on:
+  schedule:
+    - cron: "15 3 * * *"
+  workflow_dispatch:
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Trigger Render send campaign
+        env:
+          APP_URL: ${{ secrets.APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -euo pipefail
+          if [ -z "${APP_URL:-}" ]; then
+            echo "Set repository secret APP_URL (e.g. https://loky-mailer.onrender.com)"
+            exit 1
+          fi
+          # Wake cold instance
+          curl -fsS -m 60 "${APP_URL}/api/health" >/dev/null || true
+          sleep 5
+          curl -fsS -m 120 -X POST "${APP_URL}/api/campaigns/run" \
+            -H "Content-Type: application/json" \
+            -H "x-cron-secret: ${CRON_SECRET}" \
+            -d '{}'
