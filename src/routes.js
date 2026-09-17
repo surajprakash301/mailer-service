@@ -56,6 +56,7 @@ router.get("/health", asyncRoute(async (_req, res) => {
     gatherCompaniesPerIndustry: config.gatherCompaniesPerIndustry,
     dataDir: config.dataDir,
     cronSecretRequired: Boolean(config.cronSecret),
+    disableInternalCron: config.disableInternalCron,
     lastCronRuns: cronRuns,
     model: config.openaiModel,
     liveOpenAI: hasLiveOpenAI(),

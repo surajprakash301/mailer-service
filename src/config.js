@@ -24,6 +24,8 @@ export const config = {
   gatherCompaniesPerIndustry: Number(process.env.GATHER_COMPANIES_PER_INDUSTRY) || 2,
   dataDir: process.env.DATA_DIR?.trim() || "data",
   cronSecret: required("CRON_SECRET"),
+  /** Free hosts sleep; use external cron + set this true to avoid double runs. */
+  disableInternalCron: process.env.DISABLE_INTERNAL_CRON === "true",
   // WhatsApp Cloud API (Meta)
   whatsappToken: required("WHATSAPP_TOKEN"),
   whatsappPhoneNumberId: required("WHATSAPP_PHONE_NUMBER_ID"),

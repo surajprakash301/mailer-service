@@ -6,6 +6,13 @@ import { runMorningGather } from "./pipeline.js";
 import { recordCronRun } from "./store.js";
 
 export function startScheduler() {
+  if (config.disableInternalCron) {
+    console.log(
+      "[cron] internal schedules disabled (DISABLE_INTERNAL_CRON=true); use external HTTP cron → /api/pipeline/gather and /api/campaigns/run",
+    );
+    return { gatherTask: null, sendTask: null };
+  }
+
   const gatherTask = cron.schedule(
     config.gatherCronExpression,
     async () => {

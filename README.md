@@ -63,46 +63,66 @@ curl -s -X POST http://localhost:8787/api/campaigns/run \
   -H "x-cron-secret: $CRON_SECRET"
 ```
 
-Skim leads between the two jobs via the UI or `data/leads.json`. Keep the Node process alive (Railway) so both crons fire. When `CRON_SECRET` is set, ops routes require header `x-cron-secret`.
+Skim leads between the two jobs via the UI or `data/leads.json`. When `CRON_SECRET` is set, ops routes require header `x-cron-secret`.
 
-## Deploy on Railway
+## Free deploy (Render + external cron)
 
-Repo: [surajprakash301/mailer-service](https://github.com/surajprakash301/mailer-service)
+Free web hosts **sleep when idle**, so in-process `node-cron` will miss 7:00 / 8:45. Use this pattern instead:
 
-1. In [Railway](https://railway.app): **New Project** → **Deploy from GitHub** → select `mailer-service`.
-2. Build uses the included `Dockerfile` / `railway.toml`.
-3. **Variables** (Variables tab) — paste secrets in the Railway UI only, never commit them:
+1. Deploy the always-reachable HTTP API on **[Render](https://render.com)** (free)
+2. Trigger gather/send from a free external cron ([cron-job.org](https://cron-job.org)) that wakes the app
 
-| Variable | Notes |
+### 1. Render
+
+1. [Render Dashboard](https://dashboard.render.com) → **New** → **Blueprint** (or Web Service) → connect [mailer-service](https://github.com/surajprakash301/mailer-service)
+2. Uses `render.yaml` + `Dockerfile`
+3. Set secret env vars in the Render UI:
+
+| Variable | Value |
 | --- | --- |
-| `OPENAI_API_KEY` | Live key for market pick + drafts |
-| `RESEND_API_KEY` | Live Resend key |
-| `FROM_EMAIL` | e.g. `Loky Media <outreach@lokymedia.com>` |
-| `REPLY_TO` | e.g. `support@lokymedia.com` |
-| `DRY_RUN` | `true` first; `false` when ready to send live |
-| `WHATSAPP_DRY_RUN` | `true` until Meta Cloud API is ready |
-| `DATA_DIR` | `/data` |
-| `CRON_SECRET` | Long random string |
-| `GATHER_CRON` / `SEND_CRON` | defaults `0 7 * * *` / `45 8 * * *` |
-| `MAX_EMAILS_PER_DAY` | e.g. `25` |
-| `PORT` | Railway sets this automatically |
+| `OPENAI_API_KEY` | your key |
+| `RESEND_API_KEY` | your key |
+| `FROM_EMAIL` | `Loky Media <outreach@lokymedia.com>` |
+| `REPLY_TO` | `support@lokymedia.com` |
+| `CRON_SECRET` | long random string |
+| `DRY_RUN` | `true` first, then `false` when ready |
+| `DISABLE_INTERNAL_CRON` | `true` (required on free tier) |
+| `DATA_DIR` | `data` |
 
-4. **Volume**: add a volume mounted at `/data` so `leads.json` and `cron-runs.json` survive redeploys.
-5. **Settings**: keep the service always on (no sleep) so in-process `node-cron` fires at 7:00 / 8:45 IST.
-6. Generate a public domain, then check:
+4. After deploy, open `https://YOUR-APP.onrender.com/api/health` — expect `disableInternalCron: true`.
+
+**Note:** Free Render disk is **ephemeral** (redeploys can wipe `data/`). Fine for testing; for durable leads later, add a paid disk or move storage off-box.
+
+### 2. External cron (cron-job.org)
+
+Create **two** jobs (timezone **Asia/Kolkata**):
+
+| When | Method | URL | Header |
+| --- | --- | --- | --- |
+| Every day **07:00** | `POST` | `https://YOUR-APP.onrender.com/api/pipeline/gather` | `x-cron-secret: YOUR_CRON_SECRET` |
+| Every day **08:45** | `POST` | `https://YOUR-APP.onrender.com/api/campaigns/run` | `x-cron-secret: YOUR_CRON_SECRET` |
+
+Also set `Content-Type: application/json` and body `{}`. Enable “catch up” / retries if the free instance is cold-starting (first request can take ~30–60s).
+
+Manual test:
 
 ```bash
-curl -s https://YOUR-APP.up.railway.app/api/health
-```
-
-You should see `gatherCron`, `sendCron`, and `lastCronRuns`. Trigger gather manually:
-
-```bash
-curl -s -X POST https://YOUR-APP.up.railway.app/api/pipeline/gather \
+curl -s -X POST https://YOUR-APP.onrender.com/api/pipeline/gather \
   -H 'Content-Type: application/json' \
   -H "x-cron-secret: YOUR_CRON_SECRET" \
   -d '{}'
 ```
+
+## Optional: Railway (always-on, not free forever)
+
+Repo: [surajprakash301/mailer-service](https://github.com/surajprakash301/mailer-service)
+
+Prefer this only if you pay for always-on compute. Leave `DISABLE_INTERNAL_CRON` unset so built-in 7:00 / 8:45 crons run, and mount a volume at `DATA_DIR=/data`.
+
+1. [Railway](https://railway.app) → **New Project** → **Deploy from GitHub** → `mailer-service`
+2. Set the same secrets as Render (`OPENAI_API_KEY`, `RESEND_API_KEY`, `FROM_EMAIL`, `REPLY_TO`, `CRON_SECRET`, `DRY_RUN`)
+3. Attach a volume at `/data`
+4. Check `GET /api/health` then optional manual gather with `x-cron-secret`
 
 ## Pitch rules baked into the prompt
 

@@ -9,7 +9,7 @@ COPY . .
 
 ENV NODE_ENV=production
 ENV PORT=8787
-ENV DATA_DIR=/data
+ENV DATA_DIR=data
 
 EXPOSE 8787
 

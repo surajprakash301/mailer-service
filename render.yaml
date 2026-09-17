@@ -1,0 +1,37 @@
+# Free Render web service — pair with an external cron (cron-job.org)
+# so jobs still run when the free instance is asleep.
+services:
+  - type: web
+    name: loky-mailer
+    runtime: docker
+    plan: free
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATA_DIR
+        value: data
+      - key: DISABLE_INTERNAL_CRON
+        value: "true"
+      - key: DRY_RUN
+        value: "true"
+      - key: WHATSAPP_DRY_RUN
+        value: "true"
+      - key: GATHER_INDUSTRIES
+        value: "3"
+      - key: GATHER_COMPANIES_PER_INDUSTRY
+        value: "2"
+      - key: MAX_EMAILS_PER_DAY
+        value: "25"
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: FROM_EMAIL
+        sync: false
+      - key: REPLY_TO
+        sync: false
+      - key: CRON_SECRET
+        sync: false
+      - key: OPENAI_MODEL
+        value: gpt-4o-mini
