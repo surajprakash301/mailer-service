@@ -82,6 +82,7 @@ Free web hosts **sleep when idle**, so in-process `node-cron` will miss 7:00 / 8
 | --- | --- |
 | `GEMINI_API_KEY` | Google AI Studio / Generative Language key |
 | `GEMINI_MODEL` | `gemini-3.1-flash-lite` (lite = less 503 than `*-latest`) |
+| `GEMINI_MODEL_FALLBACKS` | optional comma list of backup models |
 | `GATHER_INDUSTRIES` | `1` (keep small on free Render / 30–90s cron) |
 | `GATHER_COMPANIES_PER_INDUSTRY` | `1` |
 | `RESEND_API_KEY` | your key |

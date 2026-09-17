@@ -1,17 +1,17 @@
 import OpenAI from "openai";
 import { config } from "./config.js";
 import { logError } from "./errors.js";
-import { geminiJson, hasLiveGemini } from "./gemini.js";
+import { geminiJson, hasLiveGemini, geminiAvailable } from "./gemini.js";
 import { hasLiveOpenAI } from "./openaiLive.js";
 import { SYSTEM_PROMPT, userPrompt, countWords } from "./prompts.js";
 import { templatePitch } from "./researchPrompt.js";
 
 function openaiClient() {
-  return new OpenAI({ apiKey: config.openaiApiKey });
+  return new OpenAI({ apiKey: config.openaiApiKey, timeout: 8_000 });
 }
 
 export async function generatePitch(lead) {
-  if (hasLiveGemini() || hasLiveOpenAI()) {
+  if (geminiAvailable() || hasLiveOpenAI()) {
     try {
       return await generatePitchInner(lead);
     } catch (err) {
@@ -23,9 +23,10 @@ export async function generatePitch(lead) {
 }
 
 async function generateJsonCopy({ system, user, temperature }) {
-  if (hasLiveGemini()) {
+  if (geminiAvailable()) {
     return geminiJson({ system, user, temperature });
   }
+  if (!hasLiveOpenAI()) throw new Error("No LLM available");
   const openai = openaiClient();
   const completion = await openai.chat.completions.create({
     model: config.openaiModel,

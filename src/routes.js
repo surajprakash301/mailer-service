@@ -4,7 +4,7 @@ import { buildLokyEmailHtml, LOKY_BRAND } from "./brand.js";
 import { config } from "./config.js";
 import { logError } from "./errors.js";
 import { hasLiveOpenAI } from "./openaiLive.js";
-import { hasLiveGemini } from "./gemini.js";
+import { hasLiveGemini, geminiStatus } from "./gemini.js";
 import { runDiscoveryPipeline, runResearchPipeline, importProspectsPipeline, runMorningGather } from "./pipeline.js";
 import { researchProspect } from "./research.js";
 import { checkWhatsAppNumber } from "./whatsapp.js";
@@ -62,9 +62,12 @@ router.get("/health", asyncRoute(async (_req, res) => {
     model: hasLiveGemini() ? config.geminiModel : config.openaiModel,
     liveGemini: hasLiveGemini(),
     liveOpenAI: hasLiveOpenAI(),
+    gemini: geminiStatus(),
     /** Why gather may show source:fallback — Gemini key missing on this host */
     geminiHint: hasLiveGemini()
-      ? "ok"
+      ? geminiStatus().circuitOpen
+        ? "Gemini quota circuit open — using niche/template fallbacks for 30m"
+        : "ok"
       : "Set GEMINI_API_KEY on Render Environment, then redeploy",
     whatsappDryRun: config.whatsappDryRun,
     brand: LOKY_BRAND.name,

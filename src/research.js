@@ -1,7 +1,7 @@
 import OpenAI from "openai";
 import { config } from "./config.js";
 import { logError } from "./errors.js";
-import { geminiJson, hasLiveGemini } from "./gemini.js";
+import { geminiJson, hasLiveGemini, geminiAvailable } from "./gemini.js";
 import { hasLiveOpenAI } from "./openaiLive.js";
 import { RESEARCH_PROMPT } from "./researchPrompt.js";
 
@@ -299,7 +299,7 @@ async function collectPages(query, website) {
 }
 
 async function llmExtract(query, pages, snippets) {
-  if (!hasLiveGemini() && !hasLiveOpenAI()) return null;
+  if (!geminiAvailable() && !hasLiveOpenAI()) return null;
   const packed = pages
     .map((p) => `URL: ${p.url}\nEmails seen: ${p.emails.join(", ") || "none"}\n${p.text.slice(0, 4000)}`)
     .join("\n\n---\n\n");
@@ -309,7 +309,7 @@ async function llmExtract(query, pages, snippets) {
     .join("\n");
   const user = `Operator query: ${query}\n\nCatalog hints (use if page text is empty):\n${catalogHint || "(none)"}\n\nSearch titles:\n${snippets || "(none)"}\n\nPage text:\n${packed || "(none — invent nothing; use catalog hints only)"}`;
 
-  if (hasLiveGemini()) {
+  if (geminiAvailable()) {
     try {
       return await geminiJson({
         system: RESEARCH_PROMPT,
@@ -418,7 +418,7 @@ export async function researchProspect({ query, website = "" } = {}) {
 }
 
 async function geminiDiscover(query, limit) {
-  if (!hasLiveGemini()) return [];
+  if (!geminiAvailable()) return [];
   try {
     const parsed = await geminiJson({
       system: `You suggest real local B2B operators in Patna, Bihar for DOOH cold outreach.

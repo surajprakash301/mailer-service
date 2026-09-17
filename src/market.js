@@ -1,7 +1,7 @@
 import OpenAI from "openai";
 import { config } from "./config.js";
 import { logError } from "./errors.js";
-import { geminiJson, hasLiveGemini } from "./gemini.js";
+import { geminiJson, hasLiveGemini, geminiAvailable } from "./gemini.js";
 import { hasLiveOpenAI } from "./openaiLive.js";
 
 const FALLBACK_NICHES = [
@@ -96,13 +96,24 @@ function normalizeIndustries(raw, limit, source) {
 
 /**
  * AI picks booming Patna industries for DOOH outreach.
- * Prefers Gemini, then OpenAI; falls back to a rotating niche list.
+ * Prefers Gemini (with day cache), then OpenAI; falls back to a rotating niche list.
  */
+let marketCache = { dayKey: "", industries: [] };
+
+function istDayKey() {
+  return new Date().toLocaleDateString("en-CA", { timeZone: config.timezone || "Asia/Kolkata" });
+}
+
 export async function pickBoomingIndustries(limit = 3) {
   const n = Math.max(1, Math.min(Number(limit) || 3, 5));
+  const dayKey = istDayKey();
+  if (marketCache.dayKey === dayKey && marketCache.industries.length >= n) {
+    return marketCache.industries.slice(0, n).map((item) => ({ ...item, source: item.source || "gemini-cache" }));
+  }
+
   const user = `Return exactly ${n} industries for this morning's Patna DOOH outreach wave.`;
 
-  if (hasLiveGemini()) {
+  if (geminiAvailable()) {
     try {
       const parsed = await geminiJson({
         system: MARKET_PROMPT,
@@ -110,13 +121,16 @@ export async function pickBoomingIndustries(limit = 3) {
         temperature: 0.4,
       });
       const industries = normalizeIndustries(parsed, n, "gemini");
-      if (industries.length > 0) return industries;
+      if (industries.length > 0) {
+        marketCache = { dayKey, industries };
+        return industries;
+      }
     } catch (err) {
       logError("market.pickBoomingIndustries.gemini", err);
     }
   }
 
-  // Skip OpenAI when Gemini is configured — don't burn cron budget on a dead key.
+  // Skip OpenAI when Gemini key exists — don't burn cron on a dead OpenAI key.
   if (!hasLiveGemini() && hasLiveOpenAI()) {
     try {
       const openai = new OpenAI({ apiKey: config.openaiApiKey, timeout: 8_000 });
