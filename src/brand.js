@@ -202,6 +202,8 @@ export function buildLokyEmailHtml({ subject, body, lead = {} } = {}) {
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="color-scheme" content="light only" />
+  <meta name="supported-color-schemes" content="light" />
   <title>${escapeHtml(subject || "Loky Media")}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -212,6 +214,7 @@ export function buildLokyEmailHtml({ subject, body, lead = {} } = {}) {
   </style>
   <![endif]-->
   <style type="text/css">
+    :root { color-scheme: light only; supported-color-schemes: light; }
     body, table, td, p, a, li, blockquote { -webkit-text-size-adjust: 100%; -ms-text-size-adjust: 100%; }
     img { border: 0; line-height: 100%; outline: none; text-decoration: none; -ms-interpolation-mode: bicubic; }
     a { text-decoration: none !important; }
@@ -219,6 +222,10 @@ export function buildLokyEmailHtml({ subject, body, lead = {} } = {}) {
     .loky-cta:hover { background-color: #111111 !important; color: ${b.green} !important; }
     .loky-wa { background-color: ${b.whatsappGreen} !important; color: #ffffff !important; text-decoration: none !important; border: 0; }
     .loky-ig { background-color: ${b.instagramPink} !important; color: #ffffff !important; text-decoration: none !important; border: 0; }
+    .hero-title, .hero-season {
+      color: #ffffff !important;
+      -webkit-text-fill-color: #ffffff !important;
+    }
   </style>
 </head>
 <body style="margin:0;padding:0;background:${b.soft};font-family:${b.font};">
@@ -240,7 +247,7 @@ export function buildLokyEmailHtml({ subject, body, lead = {} } = {}) {
               <![endif]-->
               <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:linear-gradient(90deg, rgba(0,0,0,0.82) 0%, rgba(0,0,0,0.55) 42%, rgba(0,0,0,0.18) 72%, rgba(0,0,0,0.05) 100%);">
                 <tr>
-                  <td style="padding:26px 28px 30px;">
+                  <td style="padding:26px 28px 30px;font-family:${b.font};">
                     <table role="presentation" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">
                       <tr>
                         <td valign="middle" style="padding:0;">
@@ -248,12 +255,16 @@ export function buildLokyEmailHtml({ subject, body, lead = {} } = {}) {
                         </td>
                         <td width="10" style="width:10px;font-size:0;line-height:0;">&nbsp;</td>
                         <td valign="middle" style="padding:0;">
-                          <span style="display:inline-block;background:${b.green};color:#ffffff;font-family:${b.font};font-size:11px;font-weight:600;letter-spacing:0.04em;padding:6px 12px;border-radius:999px;white-space:nowrap;">• Live In Patna</span>
+                          <span style="display:inline-block;background-color:${b.green};color:#ffffff !important;-webkit-text-fill-color:#ffffff !important;font-family:${b.font};font-size:11px;font-weight:600;letter-spacing:0.04em;padding:6px 12px;border-radius:999px;white-space:nowrap;">• Live In Patna</span>
                         </td>
                       </tr>
                     </table>
-                    <p style="margin:18px 0 0;font-family:${b.font};font-size:12px;letter-spacing:0.14em;text-transform:uppercase;color:#FFFFFF;opacity:0.9;">${escapeHtml(b.seasonLabel || "Digital DOOH · Patna")}</p>
-                    <h1 style="margin:10px 0 0;max-width:340px;font-family:${b.font};font-size:24px;line-height:1.25;color:#FFFFFF;font-weight:700;letter-spacing:-0.02em;">${escapeHtml(b.tagline)}</h1>
+                    <p class="hero-season" style="margin:18px 0 0;font-family:${b.font};font-size:12px;letter-spacing:0.14em;text-transform:uppercase;color:#ffffff !important;-webkit-text-fill-color:#ffffff !important;font-weight:600;">
+                      <span style="color:#ffffff !important;-webkit-text-fill-color:#ffffff !important;">${escapeHtml(b.seasonLabel || "Digital DOOH · Patna")}</span>
+                    </p>
+                    <h1 class="hero-title" style="margin:10px 0 0;max-width:340px;font-family:${b.font};font-size:24px;line-height:1.25;color:#ffffff !important;-webkit-text-fill-color:#ffffff !important;font-weight:700;letter-spacing:-0.02em;">
+                      <span style="color:#ffffff !important;-webkit-text-fill-color:#ffffff !important;">${escapeHtml(b.tagline)}</span>
+                    </h1>
                   </td>
                 </tr>
               </table>
