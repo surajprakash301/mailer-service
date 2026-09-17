@@ -7,6 +7,7 @@ npm-debug.log
 .cursor
 data/*
 !data/.gitkeep
+!data/durga-puja-industries.json
 *.log
 *.tmp
 .DS_Store
