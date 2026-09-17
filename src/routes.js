@@ -270,16 +270,24 @@ router.post("/leads/:id/whatsapp", asyncRoute(async (req, res) => {
 
 router.get("/preview/email", asyncRoute(async (req, res) => {
   let lead = null;
-  if (req.query.id) lead = await getLead(String(req.query.id));
-  if (!lead) {
-    const leads = await listLeads();
-    lead = [...leads].reverse().find((l) => l.body) || leads[0] || null;
+  try {
+    if (req.query.id) lead = await getLead(String(req.query.id));
+    if (!lead) {
+      const leads = await listLeads();
+      lead = [...leads].reverse().find((l) => l.body) || leads[0] || null;
+    }
+  } catch (err) {
+    logError("preview.email.loadLead", err);
   }
-  const subject = lead?.subject || "Loky Media · complimentary 10-second screen mock-up";
+  const subject = lead?.subject || "Durga Puja LED campaign in Patna — Loky Media";
   const body =
     lead?.body ||
-    `Hi there,\n\nSuraj Prakash here, founder of Loky Media. We run roadside LED screens across Patna.\n\nA 10-second HD spot on a 2-minute loop gives 450+ daily impressions. We make the 2D/3D motion in-house.\n\nIf useful, I will send a free 10-second animated mock-up of your brand on one of the screens.\n\nSuraj Prakash\nLoky Media`;
-  const html = buildLokyEmailHtml({ subject, body, lead: lead || {} });
+    `Hi there,\n\nDurga Puja is coming — and Patna will be full of movement and attention.\n\nSuraj Prakash here, founder of Loky Media. We run digital LED screens on Fraser Road, Patna Junction, Danapur and Rukanpura.\n\nA 10-second HD festive spot on a 2-minute loop gives 450+ daily impressions while Puja footfall peaks. We also create the video creative in-house.\n\nWant to see where your brand can appear? I can send a free sample of your brand on one of our screens, or WhatsApp me for Durga Puja packages.\n\nSuraj Prakash\nFounder, Loky Media`;
+  const html = buildLokyEmailHtml({
+    subject,
+    body,
+    lead: lead || { company: "Hotel Maurya Patna", locationHint: "Fraser Road corridor" },
+  });
   res.type("html").send(html);
 }));
 

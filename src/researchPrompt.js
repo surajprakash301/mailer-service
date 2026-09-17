@@ -14,7 +14,7 @@ Return JSON:
   "locationHint": "",
   "website": "",
   "email": "",
-  "notes": "2-4 sentences: what they sell, why roadside LED in Patna commuter traffic is relevant, any launch or location detail"
+  "notes": "2-4 sentences: what they sell, why Durga Puja / festive roadside LED in Patna is relevant, any launch or location detail"
 }`;
 
 function greetingName(contactName) {
@@ -29,17 +29,19 @@ function greetingName(contactName) {
 export function templatePitch(lead) {
   const first = greetingName(lead.contactName);
   const company = lead.company || "your team";
-  const where = lead.locationHint || "Fraser Road / Patna Junction / Danapur Station / Rukanpura";
-  const subject = `${company}: 10-second mock-up on Patna roadside LED`;
+  const where = lead.locationHint || "Fraser Road, Patna Junction, Danapur Station and Rukanpura";
+  const subject = `${company}: Durga Puja LED visibility in Patna`;
   const body = `Hi ${first},
 
-Suraj Prakash here, founder of Loky Media. We run roadside LED screens on ${where}.
+Durga Puja is coming — and Patna will be full of movement and attention.
 
-For ${company}, a 10-second HD spot on a 2-minute loop gives 450+ daily impressions among commuters you already want. We make the 2D/3D motion in-house, so you do not need an agency or a production file.
+Suraj Prakash here, founder of Loky Media. We run digital LED screens on ${where}.
 
-If useful, I will send a free 10-second animated mock-up of your brand on one of the screens. Worth a look?
+For ${company}, a 10-second HD festive spot on a 2-minute loop gives 450+ daily impressions while Puja footfall peaks. We also create the video creative in-house.
+
+Want to see where your brand can appear? I can send a free sample of your brand on one of our screens, or WhatsApp me for Durga Puja packages.
 
 Suraj Prakash
-Loky Media`;
+Founder, Loky Media`;
   return { subject, body };
 }

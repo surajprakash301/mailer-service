@@ -1,52 +1,71 @@
+import { readFileSync } from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
 import OpenAI from "openai";
 import { config } from "./config.js";
 import { logError } from "./errors.js";
 import { geminiJson, hasLiveGemini, geminiAvailable } from "./gemini.js";
 import { hasLiveOpenAI } from "./openaiLive.js";
 
-const FALLBACK_NICHES = [
-  {
-    industry: "Multi-speciality hospitals",
-    why: "OPD camps and specialty launches need high-frequency Bailey Road / Rukanpura reach.",
-    query: "multi speciality hospital Bailey Road Rukanpura Patna contact",
-  },
-  {
-    industry: "Automobile dealers",
-    why: "Festive and new-model launches map to Fraser Road and Saguna More showroom traffic.",
-    query: "car dealer Exhibition Road OR Saguna More Patna showroom",
-  },
-  {
-    industry: "Hotels and banquets",
-    why: "Banquet season and room occupancy depend on CBD / Gandhi Maidan corridor awareness.",
-    query: "hotel banquet sales Fraser Road Patna",
-  },
-  {
-    industry: "Coaching institutes",
-    why: "Admission windows need repeated impressions among Boring Road / Fraser Road students.",
-    query: "coaching institute Boring Road Patna admissions",
-  },
-  {
-    industry: "Diagnostic labs and clinics",
-    why: "Health-check packages convert well with daily commuter DOOH near Danapur and Rukanpura.",
-    query: "diagnostic lab clinic Danapur Patna",
-  },
-  {
-    industry: "Retail and lifestyle",
-    why: "Store openings and festive offers benefit from Patna Junction / Fraser Road footfall.",
-    query: "retail showroom mall Fraser Road Patna",
-  },
-];
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+function loadFocusIndustries() {
+  const override = String(process.env.GATHER_FOCUS_INDUSTRIES || "").trim();
+  if (override) {
+    return override
+      .split(",")
+      .map((label) => label.trim())
+      .filter(Boolean)
+      .map((industry) => ({
+        industry,
+        why: `Durga Puja visibility for ${industry} in Patna.`,
+        query: `${industry} Patna showroom OR store OR office`,
+      }));
+  }
+  try {
+    const file = path.join(__dirname, "..", "data", "durga-puja-industries.json");
+    const raw = JSON.parse(readFileSync(file, "utf8"));
+    const rows = Array.isArray(raw?.industries) ? raw.industries : Array.isArray(raw) ? raw : [];
+    return rows
+      .map((row) => ({
+        industry: String(row?.industry || "").trim(),
+        why: String(row?.why || "").trim(),
+        query: String(row?.query || "").trim(),
+      }))
+      .filter((row) => row.industry && row.query);
+  } catch (err) {
+    logError("market.loadFocusIndustries", err);
+    return [];
+  }
+}
+
+const FOCUS_INDUSTRIES = loadFocusIndustries();
+const FALLBACK_NICHES =
+  FOCUS_INDUSTRIES.length > 0
+    ? FOCUS_INDUSTRIES
+    : [
+        {
+          industry: "Jewellery",
+          why: "Peak Durga Puja jewellery purchase window in Patna.",
+          query: "jewellery gold showroom Patna",
+        },
+      ];
+
+const ALLOWED_LABELS = FALLBACK_NICHES.map((row) => row.industry).join(", ");
 
 const MARKET_PROMPT = `You are advising Loky Media, a Patna DOOH (roadside LED) network with screens on Fraser Road, Patna Junction, Danapur Station, and Rukanpura.
 
-Pick Patna B2B industries that are currently strong for cold outreach today (festive cycles, admissions, healthcare camps, auto launches, hospitality banquets, education, retail). Prefer local operators who can buy a 10-second HD spot.
+Durga Puja is approaching. Pick industries ONLY from this operator allowlist:
+${ALLOWED_LABELS}
+
+Prefer niches that buy festive / Puja visibility in Patna. Prefer local operators who can buy a 10-second HD spot.
 
 Return JSON only:
 {
   "industries": [
     {
-      "industry": "short label",
-      "why": "one sentence why this niche is hot in Patna now",
+      "industry": "exact label from the allowlist",
+      "why": "one sentence why this niche is hot in Patna for Durga Puja now",
       "query": "web search query to find companies in Patna for this niche"
     }
   ]
@@ -54,9 +73,11 @@ Return JSON only:
 
 Rules:
 - Return exactly the requested count of industries
+- industry must be copied from the allowlist (exact spelling)
 - Each query must include Patna and a corridor or locality when useful
 - No national-only brands without a Patna location cue
-- Do not invent company names; only industries + search queries`;
+- Do not invent company names; only industries + search queries
+- Do not invent categories outside the allowlist`;
 
 function dayIndex() {
   const now = new Date(
@@ -78,15 +99,19 @@ export function fallbackBoomingIndustries(limit = 3) {
 
 function normalizeIndustries(raw, limit, source) {
   const list = Array.isArray(raw?.industries) ? raw.industries : Array.isArray(raw) ? raw : [];
+  const allowed = new Set(FALLBACK_NICHES.map((r) => r.industry.toLowerCase()));
+  const byLabel = new Map(FALLBACK_NICHES.map((r) => [r.industry.toLowerCase(), r]));
   const cleaned = [];
   for (const row of list) {
     const industry = String(row?.industry || "").trim();
-    const query = String(row?.query || "").trim();
-    if (!industry || !query) continue;
+    if (!industry) continue;
+    const key = industry.toLowerCase();
+    if (!allowed.has(key)) continue;
+    const canon = byLabel.get(key);
     cleaned.push({
-      industry,
-      why: String(row?.why || "").trim(),
-      query,
+      industry: canon.industry,
+      why: String(row?.why || canon.why || "").trim(),
+      query: String(row?.query || canon.query || "").trim(),
       source,
     });
     if (cleaned.length >= limit) break;
@@ -95,7 +120,7 @@ function normalizeIndustries(raw, limit, source) {
 }
 
 /**
- * AI picks booming Patna industries for DOOH outreach.
+ * AI picks booming Patna industries for DOOH outreach (from Durga Puja allowlist).
  * Prefers Gemini (with day cache), then OpenAI; falls back to a rotating niche list.
  */
 let marketCache = { dayKey: "", industries: [] };
@@ -105,13 +130,13 @@ function istDayKey() {
 }
 
 export async function pickBoomingIndustries(limit = 3) {
-  const n = Math.max(1, Math.min(Number(limit) || 3, 5));
+  const n = Math.max(1, Math.min(Number(limit) || 3, FALLBACK_NICHES.length));
   const dayKey = istDayKey();
   if (marketCache.dayKey === dayKey && marketCache.industries.length >= n) {
     return marketCache.industries.slice(0, n).map((item) => ({ ...item, source: item.source || "gemini-cache" }));
   }
 
-  const user = `Return exactly ${n} industries for this morning's Patna DOOH outreach wave.`;
+  const user = `Return exactly ${n} industries from the Durga Puja allowlist for this morning's Patna DOOH outreach wave. Prefer festive-budget niches. Rotate across the list; avoid repeating yesterday's obvious picks when possible.`;
 
   if (geminiAvailable()) {
     try {

@@ -15,6 +15,7 @@ Env:
   GATHER_INDUSTRIES      (default: 10)
   GATHER_COMPANIES_PER_INDUSTRY (hint only; counts may vary)
   GATHER_MAX_LEADS       (default: 25 — hard cap on researched leads)
+  GATHER_FOCUS_INDUSTRIES  optional comma list; default = data/durga-puja-industries.json
 """
 
 from __future__ import annotations
@@ -25,6 +26,7 @@ import re
 import sys
 import time
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
 from zoneinfo import ZoneInfo
 
@@ -35,6 +37,9 @@ from pydantic import BaseModel, Field
 from supabase import Client, create_client
 
 load_dotenv()
+
+ROOT = Path(__file__).resolve().parents[1]
+FOCUS_INDUSTRIES_PATH = ROOT / "data" / "durga-puja-industries.json"
 
 
 def require_env(name: str) -> str:
@@ -58,14 +63,60 @@ TABLE_NAME = (os.environ.get("SUPABASE_LEADS_TABLE") or "emailer-table").strip()
 DEFAULT_GEMINI_MODEL = "gemini-3.6-flash"
 SCREENS = ["fraser_road", "patna_junction", "danapur_station", "rukanpura"]
 
-FALLBACK_NICHES = [
-    "multi-speciality hospitals near Bailey Road / Rukanpura Patna",
-    "automobile dealers Exhibition Road or Saguna More Patna",
-    "hotels and banquet halls Fraser Road / Gandhi Maidan Patna",
-    "coaching institutes Boring Road Patna",
-    "diagnostic labs and clinics Danapur Patna",
-    "retail showrooms and lifestyle stores Fraser Road Patna",
-]
+
+def load_focus_industries() -> list[dict]:
+    """Durga Puja focus niches. Override labels via GATHER_FOCUS_INDUSTRIES."""
+    override = (os.environ.get("GATHER_FOCUS_INDUSTRIES") or "").strip()
+    if override:
+        return [
+            {
+                "industry": label.strip(),
+                "why": f"Durga Puja visibility for {label.strip()} in Patna",
+                "query": f"{label.strip()} Patna showroom OR store OR office",
+            }
+            for label in override.split(",")
+            if label.strip()
+        ]
+    try:
+        raw = json.loads(FOCUS_INDUSTRIES_PATH.read_text(encoding="utf-8"))
+        rows = raw.get("industries") if isinstance(raw, dict) else raw
+        out = []
+        for row in rows or []:
+            industry = str(row.get("industry") or "").strip()
+            if not industry:
+                continue
+            out.append(
+                {
+                    "industry": industry,
+                    "why": str(row.get("why") or "").strip(),
+                    "query": str(row.get("query") or f"{industry} Patna").strip(),
+                }
+            )
+        if out:
+            return out
+    except Exception as err:
+        print(f"[warn] could not load {FOCUS_INDUSTRIES_PATH}: {err}", file=sys.stderr)
+    return [
+        {
+            "industry": "Jewellery",
+            "why": "Peak Durga Puja jewellery purchase window in Patna",
+            "query": "jewellery gold showroom Patna",
+        }
+    ]
+
+
+FOCUS_INDUSTRIES = load_focus_industries()
+FALLBACK_NICHES = [f"{row['industry']} — {row['query']}" for row in FOCUS_INDUSTRIES]
+
+
+def pick_focus_slice(count: int) -> list[dict]:
+    """Rotate through the focus list each IST day so all niches get coverage."""
+    if not FOCUS_INDUSTRIES:
+        return []
+    n = max(1, min(count, len(FOCUS_INDUSTRIES)))
+    start = datetime.now(ZoneInfo("Asia/Kolkata")).timetuple().tm_yday % len(FOCUS_INDUSTRIES)
+    return [FOCUS_INDUSTRIES[(start + i) % len(FOCUS_INDUSTRIES)] for i in range(n)]
+
 
 
 class LeadRecord(BaseModel):
@@ -206,27 +257,41 @@ def discover_prospects(limit: int) -> list[dict]:
     industries = env_int("GATHER_INDUSTRIES", 10)
     per_industry = env_int("GATHER_COMPANIES_PER_INDUSTRY", 3)
     day = datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%A %d %B %Y")
+    focus = pick_focus_slice(industries)
+    focus_labels = [row["industry"] for row in focus]
+    focus_block = "\n".join(
+        f"- {row['industry']}: search hint «{row['query']}» ({row['why']})"
+        for row in focus
+    )
+    all_labels = ", ".join(row["industry"] for row in FOCUS_INDUSTRIES)
 
     prompt = f"""You are sourcing B2B cold-outreach prospects for Loky Media, a Patna DOOH
 (roadside LED) network with screens on Fraser Road, Patna Junction, Danapur Station, and Rukanpura.
 
-Today is {day} (Asia/Kolkata).
+Today is {day} (Asia/Kolkata). Durga Puja is approaching — prioritize festive-budget buyers.
 
-Use web search to find REAL companies currently operating in Patna that could buy a
-10-second HD spot (hospitals, auto dealers, hotels/banquets, coaching, diagnostics, retail,
-jewellery, real estate, education, F&B, clinics, showrooms — local Patna presence).
+ALLOWED industries only (do not invent other categories). Today's focus slice:
+{focus_block}
 
-Return exactly {limit} prospects spanning at least {industries} different industries/niches.
+Full operator allowlist (stay inside this set): {all_labels}
+
+Use web search to find REAL companies currently operating in Patna (or clear Patna branches)
+that could buy a 10-second HD spot for Durga Puja / festive visibility.
+
+Return exactly {limit} prospects spanning the {len(focus_labels)} focus industries above
+({", ".join(focus_labels)}).
 Companies per industry may vary (e.g. 1–4); do not force an even split.
 Rough guide only: around {per_industry} per niche on average is fine.
 
 Rules:
+- industry field MUST be one of the allowed labels (exact spelling when possible)
 - Must be real named businesses with Patna / Bihar presence (not invented)
-- Prefer local operators or clear Patna branches of regional brands
-- Cover at least {industries} distinct industries; diversify
+- Prefer local operators or clear Patna branches of regional / national brands
+- Cover as many of today's focus industries as possible; diversify
 - Do not repeat the same company
 - nearest_screen must be one of: fraser_road, patna_junction, danapur_station, rukanpura
 - Include website when found
+- Prefer brands likely to run Puja-season offers, launches, or footfall drives
 """
 
     try:
@@ -260,10 +325,11 @@ Rules:
     fallback = []
     for i in range(min(limit, len(FALLBACK_NICHES))):
         niche = FALLBACK_NICHES[(start + i) % len(FALLBACK_NICHES)]
+        industry = FOCUS_INDUSTRIES[(start + i) % len(FOCUS_INDUSTRIES)]["industry"]
         fallback.append(
             {
                 "company": f"Patna prospect — {niche}",
-                "industry": niche.split(" near ")[0].split(" ")[0],
+                "industry": industry,
                 "nearest_screen": SCREENS[i % len(SCREENS)],
                 "location_hint": "Patna",
                 "website": "",
@@ -354,11 +420,14 @@ def build_daily_target_list() -> list[dict]:
     industries = env_int("GATHER_INDUSTRIES", 10)
     per_industry = env_int("GATHER_COMPANIES_PER_INDUSTRY", 3)
     max_leads = env_int("GATHER_MAX_LEADS", 25)
+    focus = pick_focus_slice(industries)
 
     print(
         f"Discovering up to {max_leads} Patna prospects "
-        f"(≥{industries} industries, flexible companies/niche, hint≈{per_industry}/niche)..."
+        f"(focus {len(focus)}/{len(FOCUS_INDUSTRIES)} Durga Puja categories, "
+        f"hint≈{per_industry}/niche)..."
     )
+    print("Today's industry focus: " + ", ".join(row["industry"] for row in focus))
     discovered = discover_prospects(max_leads)
     known = _existing_companies()
 

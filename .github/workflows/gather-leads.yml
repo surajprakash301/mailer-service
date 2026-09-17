@@ -33,4 +33,5 @@ jobs:
           GATHER_INDUSTRIES: "10"
           GATHER_COMPANIES_PER_INDUSTRY: "3"
           GATHER_MAX_LEADS: "25"
+          # Categories locked in data/durga-puja-industries.json (Jewellery…Agencies)
         run: python scripts/main.py

@@ -7,6 +7,7 @@ __pycache__/
 !.env.example
 data/*
 !data/.gitkeep
+!data/durga-puja-industries.json
 .DS_Store
 *.log
 *.tmp

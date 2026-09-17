@@ -1,0 +1,131 @@
+{
+  "season": "Durga Puja",
+  "note": "Operator focus list for Patna DOOH research. Gather picks from these only. Override labels with GATHER_FOCUS_INDUSTRIES (comma-separated).",
+  "industries": [
+    {
+      "industry": "Jewellery",
+      "why": "Peak Durga Puja jewellery purchase window in Patna.",
+      "query": "jewellery gold showroom Fraser Road OR Boring Road Patna"
+    },
+    {
+      "industry": "Fashion & Apparel",
+      "why": "Festive ethnic and apparel shopping surges before Puja.",
+      "query": "fashion apparel ethnic wear boutique showroom Patna"
+    },
+    {
+      "industry": "Retail",
+      "why": "High-street and mall retailers push festive offers during Puja footfall.",
+      "query": "retail store showroom mall Fraser Road Patna"
+    },
+    {
+      "industry": "FMCG",
+      "why": "Festive pack and brand visibility campaigns ramp in September–October.",
+      "query": "FMCG brand distributor Patna Bihar office"
+    },
+    {
+      "industry": "E-commerce",
+      "why": "Festive sale pushes need city-level awareness in Patna corridors.",
+      "query": "ecommerce brand warehouse OR office Patna Bihar"
+    },
+    {
+      "industry": "Quick Commerce",
+      "why": "Quick-commerce players compete for local awareness during festive demand spikes.",
+      "query": "quick commerce dark store Blinkit Zepto Instamart Patna"
+    },
+    {
+      "industry": "Real Estate",
+      "why": "Project launches and site visits ride festive city attention.",
+      "query": "real estate developer housing project Patna sales office"
+    },
+    {
+      "industry": "Automobile",
+      "why": "Festive exchange, finance, and new-model offers spike around Puja.",
+      "query": "car dealer bike showroom Exhibition Road OR Saguna More Patna"
+    },
+    {
+      "industry": "Electronics & Appliances",
+      "why": "Festive electronics and appliance offers map to high-commute LED corridors.",
+      "query": "electronics appliances mobile showroom Patna Junction OR Danapur"
+    },
+    {
+      "industry": "Food & Restaurants",
+      "why": "Dining and festive food brands chase Puja-week footfall.",
+      "query": "restaurant cafe Patna Fraser Road OR Boring Road"
+    },
+    {
+      "industry": "QSR & Food Delivery",
+      "why": "QSR and delivery apps push festive menus and city-wide awareness.",
+      "query": "QSR food delivery restaurant chain Patna"
+    },
+    {
+      "industry": "Hotels & Hospitality",
+      "why": "Guest stays and banquet bookings rise through Puja travel.",
+      "query": "hotel banquet hospitality Fraser Road OR Gandhi Maidan Patna"
+    },
+    {
+      "industry": "Travel & Tourism",
+      "why": "Holiday packages and travel agents push festive getaways.",
+      "query": "travel agency tourism package Patna"
+    },
+    {
+      "industry": "Beauty & Personal Care",
+      "why": "Bridal and festive beauty packages ramp hard before Durga Puja.",
+      "query": "beauty salon bridal studio personal care Patna"
+    },
+    {
+      "industry": "Banking",
+      "why": "Festive loans and credit products need local branch awareness.",
+      "query": "bank branch Patna Fraser Road OR Boring Road"
+    },
+    {
+      "industry": "Fintech",
+      "why": "Payments and lending apps push festive acquisition in Tier-2 cities.",
+      "query": "fintech payments lending office Patna Bihar"
+    },
+    {
+      "industry": "Insurance",
+      "why": "Festive season is a strong window for protection and investment products.",
+      "query": "insurance company agent office Patna"
+    },
+    {
+      "industry": "Education & Coaching",
+      "why": "Admission and batch launches still compete for Boring Road / Fraser Road mindshare.",
+      "query": "coaching institute education Boring Road Patna"
+    },
+    {
+      "industry": "Healthcare & Hospitals",
+      "why": "Health camps and specialty launches ride festive city movement.",
+      "query": "hospital multi speciality clinic Bailey Road OR Rukanpura Patna"
+    },
+    {
+      "industry": "Startups & Consumer Apps",
+      "why": "Consumer apps buy city DOOH for festive acquisition bursts.",
+      "query": "startup consumer app company Patna Bihar"
+    },
+    {
+      "industry": "D2C Brands",
+      "why": "D2C festive drops need offline Patna visibility beyond social ads.",
+      "query": "D2C brand store OR office Patna Bihar"
+    },
+    {
+      "industry": "Beverages",
+      "why": "Beverage brands push festive packs and on-ground visibility.",
+      "query": "beverage soft drink brand distributor Patna"
+    },
+    {
+      "industry": "Consumer Durables",
+      "why": "Festive durable purchases (AC, TV, fridge) track with electronics season.",
+      "query": "consumer durables showroom Patna"
+    },
+    {
+      "industry": "Home & Furniture",
+      "why": "Home makeover and furniture sales rise into festive hosting season.",
+      "query": "furniture home decor showroom Patna"
+    },
+    {
+      "industry": "Agencies & Media Buyers",
+      "why": "Local agencies and media buyers place festive OOH for multiple clients.",
+      "query": "advertising agency media buyer Patna"
+    }
+  ]
+}
