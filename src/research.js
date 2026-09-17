@@ -215,10 +215,28 @@ export async function searchWeb(query) {
 
 function catalogHits(query) {
   const q = String(query || "").toLowerCase();
-  const tokens = q.split(/[^a-z0-9]+/).filter((t) => t.length > 2);
+  // Corridor words alone must not pull hotels into a coaching niche, etc.
+  const weak = new Set([
+    "patna",
+    "fraser",
+    "road",
+    "danapur",
+    "rukanpura",
+    "bailey",
+    "junction",
+    "exhibition",
+    "boring",
+    "station",
+    "commuter",
+    "corridor",
+  ]);
+  const tokens = q.split(/[^a-z0-9]+/).filter((t) => t.length > 2 && !weak.has(t));
+
   return CATALOG.filter((item) => {
     if (q.includes(item.company.toLowerCase())) return true;
-    return item.keywords.some((k) => q.includes(k) || tokens.includes(k));
+    const strongKeys = item.keywords.filter((k) => !weak.has(k) && k.length > 2);
+    // Need a strong industry/brand keyword overlap — not just "Fraser Road"
+    return strongKeys.some((k) => q.includes(k) || tokens.includes(k));
   });
 }
 
