@@ -57,7 +57,8 @@ def run_scheduled_job(queries: list[str]) -> None:
         # structured output first, then fall back to grounded text → parse.
         try:
             response = gemini_client.models.generate_content(
-                model="gemini-2.5-flash",
+                model=os.environ.get("GEMINI_MODEL", "gemini-3.6-flash").strip()
+                or "gemini-3.6-flash",
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     tools=[types.Tool(google_search=types.GoogleSearch())],
@@ -69,7 +70,8 @@ def run_scheduled_job(queries: list[str]) -> None:
         except Exception as first_err:
             print(f"[warn] structured+grounding failed for {query!r}: {first_err}", file=sys.stderr)
             response = gemini_client.models.generate_content(
-                model="gemini-2.5-flash",
+                model=os.environ.get("GEMINI_MODEL", "gemini-3.6-flash").strip()
+                or "gemini-3.6-flash",
                 contents=(
                     f"{prompt}\n\n"
                     "Return ONLY valid JSON matching this schema:\n"
