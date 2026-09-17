@@ -1,0 +1,344 @@
+import { generateForLead, sendForLead } from "./campaign.js";
+import { config } from "./config.js";
+import { logError } from "./errors.js";
+import { pickBoomingIndustries } from "./market.js";
+import { discoverQueries, researchProspect } from "./research.js";
+import { countSentToday, getLead, listLeads, updateLead, upsertLead } from "./store.js";
+
+function step(name, ok, detail) {
+  return { name, ok, detail };
+}
+
+export async function runResearchPipeline({
+  query,
+  website = "",
+  generate = true,
+  send = true,
+} = {}) {
+  const steps = [];
+
+  const research = await researchProspect({ query, website });
+  steps.push(step("research", true, research.summary));
+
+  let lead = await upsertLead({
+    ...research.lead,
+    researchQuery: query,
+  });
+  lead = await updateLead(lead.id, {
+    website: research.lead.website,
+    emailSource: research.lead.emailSource,
+    sources: research.lead.sources,
+    researchQuery: query,
+    status: "researched",
+  });
+  steps.push(step("save", true, `Saved ${lead.company}`));
+
+  if (generate) {
+    try {
+      lead = await generateForLead(lead);
+      steps.push(step("draft", true, lead.subject));
+    } catch (err) {
+      logError("pipeline.draft", err);
+      steps.push(step("draft", false, err.message));
+      throw err;
+    }
+  }
+
+  if (send && generate) {
+    try {
+      const sent = await sendForLead(await getLead(lead.id), { force: true });
+      lead = sent.lead;
+      steps.push(step("send", true, lead.lastError === "dry-run" ? "Mock send (DRY_RUN)" : "Sent"));
+      return { research, lead, steps, mail: sent.mail };
+    } catch (err) {
+      logError("pipeline.send", err);
+      steps.push(step("send", false, err.message));
+      throw err;
+    }
+  }
+
+  return { research, lead, steps };
+}
+
+function slugEmail(company) {
+  const slug = String(company || "prospect")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 40);
+  return `${slug || "prospect"}@loky-mock.test`;
+}
+
+function mapImportProspect(raw = {}) {
+  const company = String(raw.company || "").trim();
+  if (!company) {
+    throw Object.assign(new Error("Each prospect needs a company"), { status: 400 });
+  }
+  const email = String(raw.email || "").trim().toLowerCase() || slugEmail(company);
+  const emailSource = raw.email ? raw.emailSource || "public" : "mock";
+  const locationHint = [raw.locationHint, raw.nearestScreen ? `screen:${raw.nearestScreen}` : ""]
+    .filter(Boolean)
+    .join(" · ");
+  const buy = Array.isArray(raw.buySignals) ? raw.buySignals.join("; ") : "";
+  const notes = [raw.notes, buy ? `Buy signals: ${buy}` : ""].filter(Boolean).join("\n");
+
+  return {
+    company,
+    contactName: String(raw.contactName || "Marketing team").trim(),
+    title: String(raw.title || "").trim(),
+    industry: String(raw.industry || "").trim(),
+    locationHint,
+    website: String(raw.website || "").trim(),
+    notes,
+    email,
+    emailSource,
+    sources: Array.isArray(raw.sources) ? raw.sources : [],
+    researchQuery: String(raw.researchQuery || "").trim(),
+    phone: String(raw.phone || "").trim(),
+    priority: String(raw.priority || "").trim(),
+    confidence: raw.confidence,
+  };
+}
+
+export async function importProspectsPipeline(payload = {}) {
+  const prospects = Array.isArray(payload.prospects) ? payload.prospects : [];
+  if (!prospects.length) {
+    throw Object.assign(new Error("prospects array is required"), { status: 400 });
+  }
+
+  const generate = payload.generate !== false;
+  const send = payload.send !== false;
+  const results = [];
+
+  for (const raw of prospects) {
+    try {
+      const mapped = mapImportProspect(raw);
+      let lead = await upsertLead(mapped);
+      lead = await updateLead(lead.id, {
+        website: mapped.website,
+        emailSource: mapped.emailSource,
+        sources: mapped.sources,
+        researchQuery: mapped.researchQuery,
+        status: "researched",
+      });
+
+      const item = {
+        ok: true,
+        company: lead.company,
+        requestPayload: mapped,
+        lead: null,
+        emailCopy: null,
+        mailPayload: null,
+        mailResponse: null,
+        steps: [step("import", true, `Saved ${lead.company} → ${lead.email}`)],
+      };
+
+      if (generate) {
+        lead = await generateForLead(lead);
+        item.emailCopy = { subject: lead.subject, body: lead.body, wordCount: lead.wordCount };
+        item.steps.push(step("draft", true, lead.subject));
+      }
+
+      if (send && generate) {
+        const sent = await sendForLead(await getLead(lead.id), {
+          force: true,
+          whatsapp: payload.whatsapp !== false,
+        });
+        lead = sent.lead;
+        item.mailPayload = sent.mail?.payload || null;
+        item.mailResponse = {
+          id: sent.mail?.id,
+          dryRun: sent.mail?.dryRun,
+          provider: sent.mail?.provider,
+        };
+        item.whatsappCheck = sent.whatsapp?.check || null;
+        item.whatsappPayload = sent.whatsapp?.payload || null;
+        item.whatsappResponse = sent.whatsapp
+          ? {
+              id: sent.whatsapp.id,
+              dryRun: sent.whatsapp.dryRun,
+              skipped: sent.whatsapp.skipped,
+              provider: sent.whatsapp.provider,
+              error: sent.whatsapp.error,
+            }
+          : null;
+        item.steps.push(
+          step("send", true, sent.mail?.dryRun ? "Email mock send (DRY_RUN)" : "Email sent"),
+        );
+        if (sent.whatsapp?.skipped) {
+          item.steps.push(
+            step(
+              "whatsapp",
+              false,
+              sent.whatsapp?.check?.reason || sent.whatsapp?.error || "skipped",
+            ),
+          );
+        } else if (sent.whatsapp) {
+          item.steps.push(
+            step(
+              "whatsapp",
+              true,
+              `${sent.whatsapp.check?.accountType || "user"} · ${sent.whatsapp.dryRun ? "mock" : "live"} · ${sent.whatsapp.check?.e164}`,
+            ),
+          );
+        }
+      }
+
+      item.lead = lead;
+      results.push(item);
+    } catch (err) {
+      logError(`pipeline.import ${raw?.company || "unknown"}`, err);
+      results.push({
+        ok: false,
+        company: raw?.company || "unknown",
+        error: err.message,
+      });
+    }
+  }
+
+  return {
+    meta: {
+      queryWave: payload.queryWave || "",
+      operator: payload.operator || "",
+      imported: results.filter((r) => r.ok).length,
+      failed: results.filter((r) => !r.ok).length,
+      dryRun: true,
+    },
+    results,
+  };
+}
+
+export async function runDiscoveryPipeline({ query, limit = 3, generate = true, send = true } = {}) {
+  const prospects = await discoverQueries(query, Math.min(Number(limit) || 3, 5));
+  const results = [];
+  for (const prospect of prospects) {
+    try {
+      const run = await runResearchPipeline({
+        query: prospect.query || prospect.company,
+        website: prospect.website || "",
+        generate,
+        send,
+      });
+      results.push({ ok: true, company: run.lead.company, lead: run.lead, steps: run.steps });
+    } catch (err) {
+      logError(`pipeline.discover ${prospect.company}`, err);
+      results.push({ ok: false, company: prospect.company, error: err.message });
+    }
+  }
+  return { results };
+}
+
+/**
+ * Morning gather: AI market pick → discover companies → save leads → draft pitches.
+ * Never sends email (8:45 send cron handles dispatch after operator skim).
+ */
+export async function runMorningGather({
+  industryLimit = config.gatherIndustries,
+  companiesPerIndustry = config.gatherCompaniesPerIndustry,
+  generate = true,
+} = {}) {
+  const sentToday = await countSentToday(config.timezone);
+  const remaining = Math.max(0, config.maxEmailsPerDay - sentToday);
+  const maxNew = Math.max(0, Math.min(remaining, industryLimit * companiesPerIndustry));
+
+  const report = {
+    dryRun: config.dryRun,
+    sentToday,
+    remaining,
+    maxNew,
+    industries: [],
+    added: 0,
+    drafted: 0,
+    skipped: 0,
+    failed: [],
+    results: [],
+  };
+
+  if (maxNew === 0) {
+    report.skipped = 1;
+    report.note = "Daily send headroom is 0; gather skipped";
+    return report;
+  }
+
+  const industries = await pickBoomingIndustries(industryLimit);
+  report.industries = industries;
+
+  const existing = await listLeads();
+  const knownCompanies = new Set(
+    existing.map((l) => String(l.company || "").toLowerCase()).filter(Boolean),
+  );
+
+  for (const niche of industries) {
+    if (report.added >= maxNew) break;
+
+    let prospects = [];
+    try {
+      prospects = await discoverQueries(
+        niche.query,
+        Math.min(Number(companiesPerIndustry) || 2, 5),
+      );
+    } catch (err) {
+      logError(`pipeline.gather.discover ${niche.industry}`, err);
+      report.failed.push({ industry: niche.industry, error: err.message });
+      continue;
+    }
+
+    for (const prospect of prospects) {
+      if (report.added >= maxNew) break;
+
+      const companyKey = String(prospect.company || "").toLowerCase();
+      if (companyKey && knownCompanies.has(companyKey)) {
+        report.skipped += 1;
+        report.results.push({
+          ok: true,
+          skipped: true,
+          company: prospect.company,
+          reason: "already_exists",
+          industry: niche.industry,
+        });
+        continue;
+      }
+
+      try {
+        const run = await runResearchPipeline({
+          query: prospect.query || prospect.company,
+          website: prospect.website || "",
+          generate,
+          send: false,
+        });
+
+        const emailKey = String(run.lead.email || "").toLowerCase();
+        if (run.lead.company) knownCompanies.add(String(run.lead.company).toLowerCase());
+
+        report.added += 1;
+        if (run.lead.subject && run.lead.body) report.drafted += 1;
+
+        report.results.push({
+          ok: true,
+          skipped: false,
+          company: run.lead.company,
+          leadId: run.lead.id,
+          status: run.lead.status,
+          email: run.lead.email,
+          industry: niche.industry,
+          steps: run.steps,
+        });
+      } catch (err) {
+        logError(`pipeline.gather ${prospect.company}`, err);
+        report.failed.push({
+          company: prospect.company,
+          industry: niche.industry,
+          error: err.message,
+        });
+        report.results.push({
+          ok: false,
+          company: prospect.company,
+          industry: niche.industry,
+          error: err.message,
+        });
+      }
+    }
+  }
+
+  return report;
+}

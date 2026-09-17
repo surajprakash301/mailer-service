@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Loky Media Outreach</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header>
+      <div>
+        <p class="eyebrow">Loky Media · Patna DOOH</p>
+        <h1>Cold outreach engine</h1>
+      </div>
+      <div class="meta" id="meta">Loading…</div>
+    </header>
+
+    <section class="stats" id="stats"></section>
+
+    <section class="layout">
+      <div>
+        <form id="research-form">
+          <h2>Research &amp; run</h2>
+          <p class="hint">Type a company, URL, or niche. We look up public details, fill the lead, draft the pitch, and mock-send (Resend stays dry-run until you subscribe).</p>
+          <label>Company, URL, or niche
+            <textarea name="query" rows="2" required placeholder="Amar Jyoti Kia Exhibition Road, or hospitals near Danapur Station"></textarea>
+          </label>
+          <label class="check"><input type="checkbox" name="discover" /> Find a few matching Patna prospects</label>
+          <div class="actions">
+            <button type="submit" id="run-research">Research, draft &amp; mock send</button>
+            <button type="button" class="ghost" id="fill-only">Research only</button>
+          </div>
+        </form>
+
+        <form id="lead-form">
+          <h2>Lead (auto-filled)</h2>
+          <label>Company <input name="company" required /></label>
+          <label>Contact name <input name="contactName" /></label>
+          <label>Email <input name="email" type="email" required /></label>
+          <label>Title <input name="title" placeholder="Owner, GM, Brand lead" /></label>
+          <label>Industry <input name="industry" placeholder="Auto dealer, hospital, QSR…" /></label>
+          <label>Location hint <input name="locationHint" placeholder="Near Fraser Road / Danapur Station" /></label>
+          <label>Website <input name="website" placeholder="https://" /></label>
+          <label>Notes <textarea name="notes" rows="3" placeholder="Why this account, recent launch, etc."></textarea></label>
+          <button type="submit">Save lead only</button>
+        </form>
+
+        <section class="log" id="log"></section>
+      </div>
+
+      <div>
+        <div class="toolbar">
+          <h2>Pipeline</h2>
+          <button type="button" id="run-campaign">Run campaign now</button>
+        </div>
+        <div id="leads" class="leads"></div>
+      </div>
+    </section>
+
+    <dialog id="preview">
+      <form method="dialog">
+        <h2 id="preview-title">Preview</h2>
+        <p class="subject" id="preview-subject"></p>
+        <pre id="preview-body"></pre>
+        <p class="words" id="preview-words"></p>
+        <menu>
+          <button value="close">Close</button>
+        </menu>
+      </form>
+    </dialog>
+
+    <script src="/app.js"></script>
+  </body>
+</html>

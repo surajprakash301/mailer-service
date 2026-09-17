@@ -1,0 +1,12 @@
+node_modules
+npm-debug.log
+.env
+.env.*
+!.env.example
+.git
+.cursor
+data/*
+!data/.gitkeep
+*.log
+*.tmp
+.DS_Store
