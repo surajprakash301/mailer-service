@@ -1,9 +1,9 @@
-# Send cron: wake Render and dispatch ready/researched leads (08:45 IST = 03:15 UTC)
+# Send cron: wake Render and dispatch ready/researched leads (09:45 IST = 04:15 UTC)
 name: Send campaign via Render
 
 on:
   schedule:
-    - cron: "15 3 * * *"
+    - cron: "15 4 * * *"
   workflow_dispatch:
 
 jobs:
