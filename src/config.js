@@ -12,7 +12,7 @@ export const config = {
   geminiApiKey: required("GEMINI_API_KEY"),
   geminiModel: process.env.GEMINI_MODEL?.trim() || "gemini-3.1-flash-lite",
   resendApiKey: required("RESEND_API_KEY"),
-  fromEmail: process.env.FROM_EMAIL?.trim() || "Loky Media <hello@lokymedia.com>",
+  fromEmail: process.env.FROM_EMAIL?.trim() || "Loky Media <surajprakash@lokymedia.com>",
   replyTo: process.env.REPLY_TO?.trim() || "support@lokymedia.com",
   dryRun: process.env.DRY_RUN !== "false",
   maxEmailsPerDay: Number(process.env.MAX_EMAILS_PER_DAY) || 25,
