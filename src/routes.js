@@ -16,7 +16,9 @@ import {
   listLeads,
   readCronRuns,
   recordCronRun,
+  storageBackend,
   updateLead,
+  useSupabaseStore,
 } from "./store.js";
 
 export const router = Router();
@@ -56,6 +58,9 @@ router.get("/health", asyncRoute(async (_req, res) => {
     gatherIndustries: config.gatherIndustries,
     gatherCompaniesPerIndustry: config.gatherCompaniesPerIndustry,
     dataDir: config.dataDir,
+    storage: storageBackend(),
+    supabaseConfigured: useSupabaseStore(),
+    supabaseTable: config.supabaseLeadsTable,
     cronSecretRequired: Boolean(config.cronSecret),
     disableInternalCron: config.disableInternalCron,
     lastCronRuns: cronRuns,

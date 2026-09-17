@@ -3,7 +3,7 @@ import { runDailyCampaign } from "./campaign.js";
 import { config } from "./config.js";
 import { logError } from "./errors.js";
 import { runMorningGather } from "./pipeline.js";
-import { recordCronRun } from "./store.js";
+import { recordCronRun, storageBackend } from "./store.js";
 
 export function startScheduler() {
   if (config.disableInternalCron) {
@@ -61,10 +61,10 @@ export function startScheduler() {
   );
 
   console.log(
-    `[cron-gather] armed "${config.gatherCronExpression}" (${config.timezone}) dataDir=${config.dataDir}`,
+    `[cron-gather] armed "${config.gatherCronExpression}" (${config.timezone}) storage=${storageBackend()}`,
   );
   console.log(
-    `[cron-send] armed "${config.sendCronExpression}" (${config.timezone}) dryRun=${config.dryRun}`,
+    `[cron-send] armed "${config.sendCronExpression}" (${config.timezone}) dryRun=${config.dryRun} storage=${storageBackend()}`,
   );
 
   return { gatherTask, sendTask };

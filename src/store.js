@@ -4,8 +4,19 @@ import { fileURLToPath } from "node:url";
 import { v4 as uuid } from "uuid";
 import { config } from "./config.js";
 import { logError } from "./errors.js";
+import { isSupabaseConfigured } from "./supabase.js";
+import * as sb from "./storeSupabase.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+/** Prefer Supabase when URL + service role are set (durable store for Render). */
+export function useSupabaseStore() {
+  return Boolean(config.supabaseUrl && config.supabaseServiceRoleKey);
+}
+
+export function storageBackend() {
+  return useSupabaseStore() ? `supabase:${config.supabaseLeadsTable}` : `file:${resolveDataDir()}`;
+}
 
 function resolveDataDir() {
   const configured = config.dataDir;
@@ -87,6 +98,7 @@ export async function recordCronRun(job, summary = {}) {
     ...current,
     [job]: {
       at: nowIso(),
+      storage: storageBackend(),
       ...summary,
     },
   };
@@ -118,17 +130,33 @@ export function normalizeLeadInput(body = {}) {
 }
 
 export async function listLeads() {
+  if (useSupabaseStore()) return sb.listLeads();
   const db = await readDb();
   return db.leads;
 }
 
 export async function getLead(id) {
+  if (useSupabaseStore()) return sb.getLead(id);
   const db = await readDb();
   return db.leads.find((lead) => lead.id === id) || null;
 }
 
 export async function createLead(input) {
   const fields = normalizeLeadInput(input);
+  if (useSupabaseStore()) {
+    return sb.createLead({
+      ...fields,
+      emailSource: input.emailSource || "",
+      sources: Array.isArray(input.sources) ? input.sources : [],
+      nearestScreen: input.nearestScreen || "",
+      buySignals: input.buySignals || "",
+      priority: input.priority || "P1",
+      confidence: input.confidence ?? null,
+      queryWave: input.queryWave || "",
+      operator: input.operator || "",
+      network: input.network || "",
+    });
+  }
   return mutate((db) => {
     const existing = db.leads.find((lead) => lead.email === fields.email);
     if (existing) {
@@ -160,6 +188,7 @@ export async function createLead(input) {
 
 export async function upsertLead(input) {
   const fields = normalizeLeadInput(input);
+  if (useSupabaseStore()) return sb.upsertLead(fields, input);
   return mutate((db) => {
     const companyKey = fields.company.toLowerCase();
     const existing = db.leads.find(
@@ -200,6 +229,7 @@ export async function upsertLead(input) {
 }
 
 export async function updateLead(id, patch) {
+  if (useSupabaseStore()) return sb.updateLead(id, patch);
   return mutate((db) => {
     const lead = db.leads.find((item) => item.id === id);
     if (!lead) return null;
@@ -236,6 +266,7 @@ export async function updateLead(id, patch) {
 }
 
 export async function deleteLead(id) {
+  if (useSupabaseStore()) return sb.deleteLead(id);
   return mutate((db) => {
     const before = db.leads.length;
     db.leads = db.leads.filter((lead) => lead.id !== id);
@@ -244,6 +275,7 @@ export async function deleteLead(id) {
 }
 
 export async function countSentToday(timezone = "Asia/Kolkata") {
+  if (useSupabaseStore()) return sb.countSentToday(timezone);
   const leads = await listLeads();
   const formatter = new Intl.DateTimeFormat("en-CA", {
     timeZone: timezone,
@@ -260,4 +292,10 @@ export async function countSentToday(timezone = "Asia/Kolkata") {
 
 export function eligibleForSend(lead) {
   return Boolean(lead?.subject && lead?.body);
+}
+
+if (isSupabaseConfigured() && !useSupabaseStore()) {
+  console.warn(
+    "[store] Supabase URL is set but SUPABASE_SERVICE_ROLE_KEY is missing — using local leads.json",
+  );
 }
