@@ -29,4 +29,6 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           SUPABASE_LEADS_TABLE: emailer-table
           GEMINI_MODEL: gemini-3.6-flash
+          GATHER_INDUSTRIES: "3"
+          GATHER_COMPANIES_PER_INDUSTRY: "2"
         run: python scripts/main.py

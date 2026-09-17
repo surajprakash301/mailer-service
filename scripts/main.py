@@ -1,15 +1,20 @@
 """
 Gemini lead research → Supabase (gather / DB update stage).
 
-Maps fields to Postgres snake_case columns on the leads table.
-Run locally:
-  .venv/bin/python scripts/main.py
+Each run:
+  1) Discover fresh Patna DOOH prospects (niches + companies via web search)
+  2) Skip companies already in the table
+  3) Deep-research each new company and upsert into emailer-table
 
 Env:
   GEMINI_API_KEY
   SUPABASE_URL
   SUPABASE_SERVICE_ROLE_KEY
-  SUPABASE_LEADS_TABLE   (default: emailer_table — set to emailer-table if that is your real name)
+  SUPABASE_LEADS_TABLE   (default: emailer-table)
+  GEMINI_MODEL           (default: gemini-3.6-flash)
+  GATHER_INDUSTRIES      (default: 3)
+  GATHER_COMPANIES_PER_INDUSTRY (default: 2)
+  GATHER_MAX_LEADS       (optional hard cap; default = industries * companies)
 """
 
 from __future__ import annotations
@@ -19,7 +24,9 @@ import os
 import re
 import sys
 import time
+from datetime import datetime
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
 from google import genai
@@ -37,7 +44,28 @@ def require_env(name: str) -> str:
     return value
 
 
+def env_int(name: str, default: int) -> int:
+    raw = (os.environ.get(name) or "").strip()
+    if not raw:
+        return default
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        return default
+
+
 TABLE_NAME = (os.environ.get("SUPABASE_LEADS_TABLE") or "emailer-table").strip()
+DEFAULT_GEMINI_MODEL = "gemini-3.6-flash"
+SCREENS = ["fraser_road", "patna_junction", "danapur_station", "rukanpura"]
+
+FALLBACK_NICHES = [
+    "multi-speciality hospitals near Bailey Road / Rukanpura Patna",
+    "automobile dealers Exhibition Road or Saguna More Patna",
+    "hotels and banquet halls Fraser Road / Gandhi Maidan Patna",
+    "coaching institutes Boring Road Patna",
+    "diagnostic labs and clinics Danapur Patna",
+    "retail showrooms and lifestyle stores Fraser Road Patna",
+]
 
 
 class LeadRecord(BaseModel):
@@ -78,6 +106,22 @@ class LeadRecord(BaseModel):
     )
 
 
+class ProspectTarget(BaseModel):
+    company: str = Field(description="Real operating business name with Patna presence")
+    industry: Optional[str] = None
+    nearest_screen: Optional[str] = Field(
+        None,
+        description="One of: fraser_road, patna_junction, danapur_station, rukanpura",
+    )
+    location_hint: Optional[str] = None
+    website: Optional[str] = None
+    why: Optional[str] = Field(None, description="Why this brand fits Loky DOOH outreach now")
+
+
+class ProspectBatch(BaseModel):
+    prospects: list[ProspectTarget]
+
+
 gemini_client = genai.Client(api_key=require_env("GEMINI_API_KEY"))
 supabase: Client = create_client(
     require_env("SUPABASE_URL"),
@@ -85,13 +129,151 @@ supabase: Client = create_client(
 )
 
 
+def _gemini_model() -> str:
+    return (os.environ.get("GEMINI_MODEL") or DEFAULT_GEMINI_MODEL).strip() or DEFAULT_GEMINI_MODEL
+
+
 def _slug_company(name: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
     return slug or "unknown"
 
 
+def _query_wave() -> str:
+    today = datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%Y-%m-%d")
+    return f"wave-{today}"
+
+
+def _normalize_screen(value: Optional[str]) -> str:
+    raw = (value or "").strip().lower().replace(" ", "_").replace("-", "_")
+    aliases = {
+        "fraser": "fraser_road",
+        "fraserroad": "fraser_road",
+        "junction": "patna_junction",
+        "patna_junction": "patna_junction",
+        "danapur": "danapur_station",
+        "danapur_station": "danapur_station",
+        "rukanpura": "rukanpura",
+        "bailey": "rukanpura",
+    }
+    if raw in SCREENS:
+        return raw
+    for key, screen in aliases.items():
+        if key in raw:
+            return screen
+    return "fraser_road"
+
+
+def _existing_companies() -> set[str]:
+    try:
+        result = supabase.table(TABLE_NAME).select("company").execute()
+        rows = result.data or []
+        return {str(r.get("company") or "").strip().lower() for r in rows if r.get("company")}
+    except Exception as err:
+        print(f"[warn] could not load existing companies: {err}", file=sys.stderr)
+        return set()
+
+
+def _generate_json(prompt: str, schema: type[BaseModel]) -> dict:
+    model = _gemini_model()
+    try:
+        response = gemini_client.models.generate_content(
+            model=model,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                tools=[types.Tool(google_search=types.GoogleSearch())],
+                response_mime_type="application/json",
+                response_schema=schema,
+            ),
+        )
+        return json.loads(response.text)
+    except Exception as first_err:
+        print(f"[warn] structured+grounding failed ({model}): {first_err}", file=sys.stderr)
+        response = gemini_client.models.generate_content(
+            model=model,
+            contents=(
+                f"{prompt}\n\nReturn ONLY valid JSON matching this schema:\n"
+                f"{json.dumps(schema.model_json_schema(), indent=2)}"
+            ),
+            config=types.GenerateContentConfig(
+                tools=[types.Tool(google_search=types.GoogleSearch())],
+            ),
+        )
+        return json.loads(response.text)
+
+
+def discover_prospects(limit: int) -> list[dict]:
+    """Use Gemini + Google Search to pick a fresh Patna prospect set for today."""
+    industries = env_int("GATHER_INDUSTRIES", 3)
+    per_industry = env_int("GATHER_COMPANIES_PER_INDUSTRY", 2)
+    day = datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%A %d %B %Y")
+
+    prompt = f"""You are sourcing B2B cold-outreach prospects for Loky Media, a Patna DOOH
+(roadside LED) network with screens on Fraser Road, Patna Junction, Danapur Station, and Rukanpura.
+
+Today is {day} (Asia/Kolkata).
+
+Use web search to find REAL companies currently operating in Patna that could buy a
+10-second HD spot (hospitals, auto dealers, hotels/banquets, coaching, diagnostics, retail,
+jewellery, real estate, education, F&B with local Patna presence).
+
+Return exactly {limit} prospects (aim for ~{industries} niches × ~{per_industry} companies).
+Rules:
+- Must be real named businesses with Patna / Bihar presence (not invented)
+- Prefer local operators or clear Patna branches of regional brands
+- Diversify industries; do not repeat the same company
+- nearest_screen must be one of: fraser_road, patna_junction, danapur_station, rukanpura
+- Include website when found
+"""
+
+    try:
+        raw = _generate_json(prompt, ProspectBatch)
+        batch = ProspectBatch.model_validate(raw)
+        prospects = []
+        for p in batch.prospects:
+            company = (p.company or "").strip()
+            if not company:
+                continue
+            prospects.append(
+                {
+                    "company": company,
+                    "industry": (p.industry or "").strip(),
+                    "nearest_screen": _normalize_screen(p.nearest_screen),
+                    "location_hint": (p.location_hint or "").strip(),
+                    "website": (p.website or "").strip(),
+                    "why": (p.why or "").strip(),
+                    "query_wave": _query_wave(),
+                    "operator": "Gemini-Pipeline",
+                    "network": "Loky Media Patna DOOH",
+                }
+            )
+        if prospects:
+            return prospects[:limit]
+    except Exception as err:
+        print(f"[warn] prospect discovery failed: {err}", file=sys.stderr)
+
+    # Fallback: rotate niche seeds so mornings still vary without inventing firms
+    start = datetime.now(ZoneInfo("Asia/Kolkata")).timetuple().tm_yday % len(FALLBACK_NICHES)
+    fallback = []
+    for i in range(min(limit, len(FALLBACK_NICHES))):
+        niche = FALLBACK_NICHES[(start + i) % len(FALLBACK_NICHES)]
+        fallback.append(
+            {
+                "company": f"Patna prospect — {niche}",
+                "industry": niche.split(" near ")[0].split(" ")[0],
+                "nearest_screen": SCREENS[i % len(SCREENS)],
+                "location_hint": "Patna",
+                "website": "",
+                "why": niche,
+                "query_wave": _query_wave(),
+                "operator": "Gemini-Pipeline",
+                "network": "Loky Media Patna DOOH",
+                "_fallback_search": niche,
+            }
+        )
+    return fallback
+
+
 def _normalize_record(lead_data: dict, *, prompt: str, item: dict) -> dict:
-    """Attach metadata, coerce list-ish fields to text, mock missing email."""
     out = dict(lead_data)
 
     for key in ("sources", "buy_signals"):
@@ -104,54 +286,29 @@ def _normalize_record(lead_data: dict, *, prompt: str, item: dict) -> dict:
         out["email"] = email
         out.setdefault("email_source", out.get("email_source") or "public")
     else:
-        # Never invent personal inboxes; dry-run friendly placeholder
         out["email"] = f"{_slug_company(out.get('company') or item['company'])}@loky-mock.test"
         out["email_source"] = "missing"
 
+    if item.get("industry") and not out.get("industry"):
+        out["industry"] = item["industry"]
+    if item.get("location_hint") and not out.get("location_hint"):
+        out["location_hint"] = item["location_hint"]
+    if item.get("website") and not out.get("website"):
+        out["website"] = item["website"]
+    if item.get("why") and not out.get("notes"):
+        out["notes"] = item["why"]
+
     out["research_query"] = prompt
-    out["query_wave"] = item.get("query_wave", "Wave-1")
-    out["nearest_screen"] = item.get("nearest_screen")
+    out["query_wave"] = item.get("query_wave", _query_wave())
+    out["nearest_screen"] = _normalize_screen(item.get("nearest_screen"))
     out["operator"] = item.get("operator", "Gemini-Pipeline")
-    out["network"] = item.get("network")
+    out["network"] = item.get("network", "Loky Media Patna DOOH")
     out["status"] = "researched"
     return out
 
 
-DEFAULT_GEMINI_MODEL = "gemini-3.6-flash"
-
-
-def _gemini_model() -> str:
-    # Empty GitHub vars.GEMINI_MODEL must not win over the default
-    return (os.environ.get("GEMINI_MODEL") or DEFAULT_GEMINI_MODEL).strip() or DEFAULT_GEMINI_MODEL
-
-
 def _generate_lead(prompt: str) -> dict:
-    """Grounded structured JSON; fall back to grounded text + schema prompt."""
-    model = _gemini_model()
-    try:
-        response = gemini_client.models.generate_content(
-            model=model,
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                tools=[types.Tool(google_search=types.GoogleSearch())],
-                response_mime_type="application/json",
-                response_schema=LeadRecord,
-            ),
-        )
-        return json.loads(response.text)
-    except Exception as first_err:
-        print(f"[warn] structured+grounding failed ({model}): {first_err}", file=sys.stderr)
-        response = gemini_client.models.generate_content(
-            model=model,
-            contents=(
-                f"{prompt}\n\nReturn ONLY valid JSON matching this schema:\n"
-                f"{json.dumps(LeadRecord.model_json_schema(), indent=2)}"
-            ),
-            config=types.GenerateContentConfig(
-                tools=[types.Tool(google_search=types.GoogleSearch())],
-            ),
-        )
-        return json.loads(response.text)
+    return _generate_json(prompt, LeadRecord)
 
 
 def process_lead_queries(queries: list[dict]) -> None:
@@ -159,21 +316,23 @@ def process_lead_queries(queries: list[dict]) -> None:
 
     for item in queries:
         target_company = item["company"]
-        print(f"Researching: {target_company}...")
+        search_name = item.get("_fallback_search") or target_company
+        print(f"Researching: {search_name}...")
 
         prompt = (
-            f"Perform a web search for the business '{target_company}'. "
+            f"Perform a web search for the business '{search_name}' in Patna / Bihar. "
+            f"Find one concrete operating company matching this niche if the name is a niche label. "
             f"Find official business contact details, official website, operational locations, "
-            f"and recent expansion or advertising signals. Prefer Patna / Bihar context when relevant."
+            f"and recent expansion or advertising signals. Prefer Patna context."
         )
 
         try:
             lead_data = _generate_lead(prompt)
-            if not lead_data.get("company"):
-                lead_data["company"] = target_company
-            # Validate / strip unknown keys via pydantic
+            if not (lead_data.get("company") or "").strip():
+                lead_data["company"] = target_company.replace("Patna prospect — ", "").strip() or target_company
             validated = LeadRecord.model_validate(lead_data).model_dump()
             records.append(_normalize_record(validated, prompt=prompt, item=item))
+            print(f"  → {validated.get('company')} / {validated.get('email')}")
         except Exception as e:
             print(f"Error processing {target_company}: {e}", file=sys.stderr)
 
@@ -183,24 +342,56 @@ def process_lead_queries(queries: list[dict]) -> None:
         print("No records to push.")
         return
 
-    # Requires UNIQUE(company) — see scripts/supabase-emailer-table-migrate.sql
     supabase.table(TABLE_NAME).upsert(records, on_conflict="company").execute()
     print(f"Pushed {len(records)} records into {TABLE_NAME}.")
 
 
+def build_daily_target_list() -> list[dict]:
+    industries = env_int("GATHER_INDUSTRIES", 3)
+    per_industry = env_int("GATHER_COMPANIES_PER_INDUSTRY", 2)
+    max_leads = env_int("GATHER_MAX_LEADS", industries * per_industry)
+
+    print(
+        f"Discovering up to {max_leads} Patna prospects "
+        f"({industries} niches × {per_industry})..."
+    )
+    discovered = discover_prospects(max_leads)
+    known = _existing_companies()
+
+    fresh = []
+    seen = set()
+    for item in discovered:
+        key = item["company"].strip().lower()
+        if not key or key in seen:
+            continue
+        if key in known and not item.get("_fallback_search"):
+            print(f"Skip existing: {item['company']}")
+            continue
+        seen.add(key)
+        fresh.append(item)
+
+    if not fresh and discovered:
+        # All known — still research discovered set so waves refresh buy_signals
+        print("All discovered companies already in DB; refreshing research on new discovery batch.")
+        fresh = discovered[:max_leads]
+
+    print(f"Queued {len(fresh)} companies for deep research:")
+    for item in fresh:
+        print(f"  - {item['company']} [{item.get('nearest_screen')}]")
+    return fresh[:max_leads]
+
+
 if __name__ == "__main__":
-    target_list = [
-        {
-            "company": "Kalyan Jewellers Patna",
-            "nearest_screen": "Patna Junction",
-            "query_wave": "Wave-1",
-            "network": "Loky Media Patna DOOH",
-        },
-        {
-            "company": "Mediversal Hospital Patna",
-            "nearest_screen": "Kankarbagh",
-            "query_wave": "Wave-1",
-            "network": "Loky Media Patna DOOH",
-        },
-    ]
+    # Optional override: TARGETS_JSON='[{"company":"...","nearest_screen":"fraser_road"}]'
+    override = (os.environ.get("TARGETS_JSON") or "").strip()
+    if override:
+        target_list = json.loads(override)
+        print(f"Using TARGETS_JSON override ({len(target_list)} companies)")
+    else:
+        target_list = build_daily_target_list()
+
+    if not target_list:
+        print("No targets to research.")
+        raise SystemExit(0)
+
     process_lead_queries(target_list)
