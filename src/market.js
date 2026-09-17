@@ -53,12 +53,12 @@ const FALLBACK_NICHES =
 
 const ALLOWED_LABELS = FALLBACK_NICHES.map((row) => row.industry).join(", ");
 
-const MARKET_PROMPT = `You are advising Loky Media, a Patna DOOH (roadside LED) network with screens on Fraser Road, Patna Junction, Danapur Station, and Rukanpura.
+const MARKET_PROMPT = `You are advising Loky Media, a Patna DOOH (roadside LED) network with screens on Dakbangla Chauraha (2 screens), Boring Road (3 screens), Rukanpura Jagdeo Path, and Mithapur Bypass.
 
 Durga Puja is approaching. Pick industries ONLY from this operator allowlist:
 ${ALLOWED_LABELS}
 
-Prefer niches that buy festive / Puja visibility in Patna. Prefer local operators who can buy a 10-second HD spot.
+Prefer niches that buy festive / Puja visibility in Patna. Prefer local operators who can buy a 20 seconds / 30 seconds HD spot.
 
 Return JSON only:
 {

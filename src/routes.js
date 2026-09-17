@@ -282,11 +282,11 @@ router.get("/preview/email", asyncRoute(async (req, res) => {
   const subject = lead?.subject || "Durga Puja LED campaign in Patna — Loky Media";
   const body =
     lead?.body ||
-    `Hi there,\n\nDurga Puja is coming — and Patna will be full of movement and attention.\n\nSuraj Prakash here, founder of Loky Media. We run digital LED screens on Fraser Road, Patna Junction, Danapur and Rukanpura.\n\nA 10-second HD festive spot on a 2-minute loop gives 450+ daily impressions while Puja footfall peaks. We also create the video creative in-house.\n\nWant to see where your brand can appear? I can send a free sample of your brand on one of our screens, or WhatsApp me for Durga Puja packages.\n\nSuraj Prakash\nFounder, Loky Media`;
+    `Hi there,\n\nDurga Puja is coming — and Patna will be full of movement and attention.\n\nSuraj Prakash here, founder of Loky Media. We run digital LED screens on Dakbangla Chauraha (2 screens), Boring Road (3 screens), Rukanpura Jagdeo Path, Mithapur Bypass.\n\nA 20 seconds / 30 seconds HD festive spot on a 2-4.5 minute loop gives 450+ daily impressions while Puja footfall peaks. We also create the video creative in-house.\n\nWant to see where your brand can appear? I can send a free sample of your brand on one of our screens, or WhatsApp me for Durga Puja packages.\n\nSuraj Prakash\nFounder, Loky Media`;
   const html = buildLokyEmailHtml({
     subject,
     body,
-    lead: lead || { company: "Hotel Maurya Patna", locationHint: "Fraser Road corridor" },
+    lead: lead || { company: "Hotel Maurya Patna", locationHint: "Dakbangla Chauraha (2 screens), Boring Road (3 screens), Rukanpura Jagdeo Path, Mithapur Bypass" },
   });
   res.type("html").send(html);
 }));

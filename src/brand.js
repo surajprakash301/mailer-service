@@ -2,7 +2,7 @@
  * Loky Media brand tokens pulled from lokymedia.com
  * CTA / live green: rgb(0, 174, 86) → #00AE56
  * Accent coral: rgb(254, 101, 69) → #FE6545
- * Hero: /static/images/hero-bg-mobile.png
+ * Hero: /email/loky-durga-puja-header.jpg (Durga Puja LinkedIn cover)
  */
 export const LOKY_BRAND = {
   name: "Loky Media",
@@ -10,23 +10,30 @@ export const LOKY_BRAND = {
   seasonLabel: "Durga Puja · Patna",
   ctaLabel: "Get a free Durga Puja sample on our screen →",
   whyLine:
-    "Prime Patna LED locations · high visibility on the move · 10s HD festive video · in-house creative · free sample of your brand on screen",
+    "Prime Patna LED locations · high visibility on the move · 20s / 30s HD festive video · in-house creative · free sample of your brand on screen",
   siteUrl: "https://www.lokymedia.com",
   inventoryUrl: "https://www.lokymedia.com/product/list",
   logoUrl: "https://www.lokymedia.com/static/images/logo.svg",
-  heroBgUrl: "https://www.lokymedia.com/static/images/hero-bg-mobile.png",
+  /** Absolute URL built via heroBgUrl(); festive header art (right-weighted). */
+  heroBgPath: "/email/loky-durga-puja-header.jpg",
   /** Absolute URL required in email clients; served from /public/email/ */
   inventoryBannerPath: "/email/loky-dooh-banner.jpg",
   ctaIconPath: "/email/icon-screen.svg",
-  whatsappIconPath: "/email/icon-whatsapp.svg",
+  whatsappIconPath: "/email/icon-whatsapp.png",
+  instagramIconPath: "/email/icon-instagram.png",
   supportEmail: "support@lokymedia.com",
   supportPhone: "+91-9123472510",
   /** Digits only for wa.me — override with WHATSAPP_BUSINESS_E164 if needed */
   whatsappE164: "919123472510",
   whatsappCtaLabel: "WhatsApp us for Durga Puja slots →",
+  /** Stable profile URL (prefer over session/qr query strings in mail) */
+  instagramUrl: "https://www.instagram.com/loky_media/",
+  instagramCtaLabel: "Follow Loky Media on Instagram →",
   coral: "#FE6545",
   green: "#00AE56",
   whatsappGreen: "#25D366",
+  /** Instagram brand magenta — solid for email-client safety */
+  instagramPink: "#E1306C",
   ink: "#111827",
   black: "#000000",
   muted: "#4B5563",
@@ -37,6 +44,8 @@ export const LOKY_BRAND = {
   font: "Inter, -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif",
   founder: "Suraj Prakash",
   founderTitle: "Founder, Loky Media",
+  /** Shared CTA icon pixel size (width + height) */
+  ctaIconPx: 20,
 };
 
 /** Base URL for hosted email assets (local preview or Render). */
@@ -53,12 +62,28 @@ export function inventoryBannerUrl() {
   return `${emailAssetBaseUrl()}${LOKY_BRAND.inventoryBannerPath}`;
 }
 
+export function heroBgUrl() {
+  return `${emailAssetBaseUrl()}${LOKY_BRAND.heroBgPath}`;
+}
+
 export function ctaIconUrl() {
   return `${emailAssetBaseUrl()}${LOKY_BRAND.ctaIconPath}`;
 }
 
 export function whatsappIconUrl() {
   return `${emailAssetBaseUrl()}${LOKY_BRAND.whatsappIconPath}`;
+}
+
+export function instagramIconUrl() {
+  return `${emailAssetBaseUrl()}${LOKY_BRAND.instagramIconPath}`;
+}
+
+export function instagramProfileUrl() {
+  return (
+    process.env.INSTAGRAM_PROFILE_URL?.trim() ||
+    LOKY_BRAND.instagramUrl ||
+    "https://www.instagram.com/loky_media/"
+  );
 }
 
 /** Opens WhatsApp chat with optional prefilled business query. */
@@ -99,14 +124,19 @@ const BODY_EMPHASIS = [
   "roadside LED",
   "Loky Media",
   "LOKY Media",
-  "Fraser Road",
-  "Patna Junction",
-  "Danapur Station",
+  "Dakbangla Chauraha",
+  "Boring Road",
+  "Rukanpura Jagdeo Path",
+  "Mithapur Bypass",
   "Rukanpura",
   "free sample",
   "video creative",
-  "10-second",
-  "2-minute loop",
+  "20 seconds / 30 seconds",
+  "20-second",
+  "30-second",
+  "20s / 30s",
+  "2–4.5 minute loop",
+  "2-4.5 minute loop",
   "450+",
   "Patna",
 ];
@@ -148,9 +178,14 @@ export function paragraphsFromBody(body) {
 export function buildLokyEmailHtml({ subject, body, lead = {} } = {}) {
   const b = LOKY_BRAND;
   const bannerUrl = inventoryBannerUrl();
+  const heroUrl = heroBgUrl();
   const screenIcon = ctaIconUrl();
   const waIcon = whatsappIconUrl();
+  const igIcon = instagramIconUrl();
   const waUrl = whatsappChatUrl(lead);
+  const igUrl = instagramProfileUrl();
+  const iconPx = Number(b.ctaIconPx) || 20;
+  const iconStyle = `display:inline-block;width:${iconPx}px;height:${iconPx}px;border:0;vertical-align:middle;margin-right:8px;`;
   const blocks = paragraphsFromBody(body)
     .map(
       (p) =>
@@ -183,6 +218,7 @@ export function buildLokyEmailHtml({ subject, body, lead = {} } = {}) {
     .loky-cta { background-color: #000000 !important; color: ${b.green} !important; text-decoration: none !important; border: 0; }
     .loky-cta:hover { background-color: #111111 !important; color: ${b.green} !important; }
     .loky-wa { background-color: ${b.whatsappGreen} !important; color: #ffffff !important; text-decoration: none !important; border: 0; }
+    .loky-ig { background-color: ${b.instagramPink} !important; color: #ffffff !important; text-decoration: none !important; border: 0; }
   </style>
 </head>
 <body style="margin:0;padding:0;background:${b.soft};font-family:${b.font};">
@@ -192,31 +228,32 @@ export function buildLokyEmailHtml({ subject, body, lead = {} } = {}) {
         <table role="presentation" width="600" cellspacing="0" cellpadding="0" style="max-width:600px;width:100%;background:${b.paper};border:1px solid ${b.line};border-radius:16px;overflow:hidden;font-family:${b.font};">
           <tr>
             <td
-              background="${b.heroBgUrl}"
-              bgcolor="#0A0A0A"
+              background="${heroUrl}"
+              bgcolor="#000000"
               valign="top"
-              style="background-color:#0A0A0A;background-image:url('${b.heroBgUrl}');background-size:cover;background-position:center center;background-repeat:no-repeat;padding:0;"
+              style="background-color:#000000;background-image:url('${heroUrl}');background-size:cover;background-position:right center;background-repeat:no-repeat;padding:0;"
             >
               <!--[if gte mso 9]>
               <v:rect xmlns:v="urn:schemas-microsoft-com:vml" fill="true" stroke="false" style="width:600px;">
-                <v:fill type="frame" src="${b.heroBgUrl}" color="#0A0A0A" />
+                <v:fill type="frame" src="${heroUrl}" color="#000000" />
                 <v:textbox style="mso-fit-shape-to-text:true" inset="0,0,0,0">
               <![endif]-->
-              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:linear-gradient(180deg, rgba(0,0,0,0.72) 0%, rgba(0,0,0,0.55) 100%);">
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:linear-gradient(90deg, rgba(0,0,0,0.82) 0%, rgba(0,0,0,0.55) 42%, rgba(0,0,0,0.18) 72%, rgba(0,0,0,0.05) 100%);">
                 <tr>
                   <td style="padding:26px 28px 30px;">
-                    <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+                    <table role="presentation" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">
                       <tr>
-                        <td>
+                        <td valign="middle" style="padding:0;">
                           <img src="${b.logoUrl}" alt="Loky Media" height="30" style="display:block;height:30px;width:auto;border:0;" />
                         </td>
-                        <td align="right">
-                          <span style="display:inline-block;background:${b.green};color:#ffffff;font-family:${b.font};font-size:11px;font-weight:600;letter-spacing:0.04em;padding:6px 12px;border-radius:999px;">• Live In Patna</span>
+                        <td width="10" style="width:10px;font-size:0;line-height:0;">&nbsp;</td>
+                        <td valign="middle" style="padding:0;">
+                          <span style="display:inline-block;background:${b.green};color:#ffffff;font-family:${b.font};font-size:11px;font-weight:600;letter-spacing:0.04em;padding:6px 12px;border-radius:999px;white-space:nowrap;">• Live In Patna</span>
                         </td>
                       </tr>
                     </table>
                     <p style="margin:18px 0 0;font-family:${b.font};font-size:12px;letter-spacing:0.14em;text-transform:uppercase;color:#FFFFFF;opacity:0.9;">${escapeHtml(b.seasonLabel || "Digital DOOH · Patna")}</p>
-                    <h1 style="margin:10px 0 0;font-family:${b.font};font-size:24px;line-height:1.25;color:#FFFFFF;font-weight:700;letter-spacing:-0.02em;">${escapeHtml(b.tagline)}</h1>
+                    <h1 style="margin:10px 0 0;max-width:340px;font-family:${b.font};font-size:24px;line-height:1.25;color:#FFFFFF;font-weight:700;letter-spacing:-0.02em;">${escapeHtml(b.tagline)}</h1>
                   </td>
                 </tr>
               </table>
@@ -239,7 +276,7 @@ export function buildLokyEmailHtml({ subject, body, lead = {} } = {}) {
                       href="${b.inventoryUrl}"
                       style="display:block;width:100%;box-sizing:border-box;padding:14px 20px;font-family:${b.font};font-size:15px;font-weight:600;line-height:1.4;text-align:center;color:${b.green} !important;text-decoration:none !important;border:0;background-color:${b.black};border-radius:12px;"
                     >
-                      <img src="${screenIcon}" width="18" height="18" alt="" style="display:inline-block;width:18px;height:18px;border:0;vertical-align:middle;margin-right:8px;" />
+                      <img src="${screenIcon}" width="${iconPx}" height="${iconPx}" alt="" style="${iconStyle}" />
                       <span style="color:${b.green} !important;text-decoration:none !important;vertical-align:middle;">${escapeHtml(b.ctaLabel)}</span>
                     </a>
                   </td>
@@ -254,8 +291,24 @@ export function buildLokyEmailHtml({ subject, body, lead = {} } = {}) {
                       href="${waUrl}"
                       style="display:block;width:100%;box-sizing:border-box;padding:14px 20px;font-family:${b.font};font-size:15px;font-weight:600;line-height:1.4;text-align:center;color:#ffffff !important;text-decoration:none !important;border:0;background-color:${b.whatsappGreen};border-radius:12px;"
                     >
-                      <img src="${waIcon}" width="18" height="18" alt="" style="display:inline-block;width:18px;height:18px;border:0;vertical-align:middle;margin-right:8px;" />
+                      <img src="${waIcon}" width="${iconPx}" height="${iconPx}" alt="" style="${iconStyle}" />
                       <span style="color:#ffffff !important;text-decoration:none !important;vertical-align:middle;">${escapeHtml(b.whatsappCtaLabel)}</span>
+                    </a>
+                  </td>
+                </tr>
+                <tr>
+                  <td height="12" style="height:12px;font-size:0;line-height:0;">&nbsp;</td>
+                </tr>
+                <tr>
+                  <td align="center" bgcolor="${b.instagramPink}" style="background-color:${b.instagramPink};border-radius:12px;mso-padding-alt:14px 20px;">
+                    <a
+                      class="loky-ig"
+                      href="${igUrl}"
+                      target="_blank"
+                      style="display:block;width:100%;box-sizing:border-box;padding:14px 20px;font-family:${b.font};font-size:15px;font-weight:600;line-height:1.4;text-align:center;color:#ffffff !important;text-decoration:none !important;border:0;background-color:${b.instagramPink};border-radius:12px;"
+                    >
+                      <img src="${igIcon}" width="${iconPx}" height="${iconPx}" alt="" style="${iconStyle}" />
+                      <span style="color:#ffffff !important;text-decoration:none !important;vertical-align:middle;">${escapeHtml(b.instagramCtaLabel)}</span>
                     </a>
                   </td>
                 </tr>
@@ -296,7 +349,7 @@ export function buildLokyEmailHtml({ subject, body, lead = {} } = {}) {
                 · ${escapeHtml(b.supportEmail)}
                 · <a href="${waUrl}" style="color:${b.whatsappGreen};text-decoration:none !important;font-weight:600;">WhatsApp ${escapeHtml(b.supportPhone)}</a>
               </p>
-              <p style="margin:0;font-family:${b.font};font-size:11px;color:#9CA3AF;">Patna office: Bailey Rd, Rukanpura · Screens across Fraser Road, Junction, Danapur &amp; Rukanpura corridors</p>
+              <p style="margin:0;font-family:${b.font};font-size:11px;color:#9CA3AF;">Patna office: Bailey Rd, Rukanpura · Screens at Dakbangla Chauraha (2), Boring Road (3), Rukanpura Jagdeo Path &amp; Mithapur Bypass</p>
             </td>
           </tr>
         </table>

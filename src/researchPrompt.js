@@ -3,7 +3,7 @@ export const RESEARCH_PROMPT = `You extract B2B outreach fields for Loky Media (
 From search snippets and page text, fill a lead record. Only use facts present in the sources.
 Never invent a personal Gmail/Yahoo/Outlook address. If no public business email appears, leave email empty.
 Prefer owner, GM, marketing head, or "Showroom Manager" as title when the person is unnamed.
-locationHint should relate to Patna corridors: Fraser Road, Patna Junction, Danapur Station, Rukanpura.
+locationHint should relate to Patna corridors: Dakbangla Chauraha, Boring Road, Rukanpura Jagdeo Path, Mithapur Bypass.
 
 Return JSON:
 {
@@ -29,7 +29,7 @@ function greetingName(contactName) {
 export function templatePitch(lead) {
   const first = greetingName(lead.contactName);
   const company = lead.company || "your team";
-  const where = lead.locationHint || "Fraser Road, Patna Junction, Danapur Station and Rukanpura";
+  const where = lead.locationHint || "Dakbangla Chauraha (2 screens), Boring Road (3 screens), Rukanpura Jagdeo Path, Mithapur Bypass";
   const subject = `${company}: Durga Puja LED visibility in Patna`;
   const body = `Hi ${first},
 
@@ -37,7 +37,7 @@ Durga Puja is coming — and Patna will be full of movement and attention.
 
 Suraj Prakash here, founder of Loky Media. We run digital LED screens on ${where}.
 
-For ${company}, a 10-second HD festive spot on a 2-minute loop gives 450+ daily impressions while Puja footfall peaks. We also create the video creative in-house.
+For ${company}, a 20 seconds / 30 seconds HD festive spot on a 2-4.5 minute loop gives 450+ daily impressions while Puja footfall peaks. We also create the video creative in-house.
 
 Want to see where your brand can appear? I can send a free sample of your brand on one of our screens, or WhatsApp me for Durga Puja packages.
 

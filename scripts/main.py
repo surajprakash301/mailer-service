@@ -61,7 +61,12 @@ def env_int(name: str, default: int) -> int:
 
 TABLE_NAME = (os.environ.get("SUPABASE_LEADS_TABLE") or "emailer-table").strip()
 DEFAULT_GEMINI_MODEL = "gemini-3.6-flash"
-SCREENS = ["fraser_road", "patna_junction", "danapur_station", "rukanpura"]
+SCREENS = [
+    "dakbangla_chauraha",
+    "boring_road",
+    "rukanpura_jagdeo_path",
+    "mithapur_bypass",
+]
 
 
 def load_focus_industries() -> list[dict]:
@@ -162,7 +167,7 @@ class ProspectTarget(BaseModel):
     industry: Optional[str] = None
     nearest_screen: Optional[str] = Field(
         None,
-        description="One of: fraser_road, patna_junction, danapur_station, rukanpura",
+        description="One of: dakbangla_chauraha, boring_road, rukanpura_jagdeo_path, mithapur_bypass",
     )
     location_hint: Optional[str] = None
     website: Optional[str] = None
@@ -197,21 +202,31 @@ def _query_wave() -> str:
 def _normalize_screen(value: Optional[str]) -> str:
     raw = (value or "").strip().lower().replace(" ", "_").replace("-", "_")
     aliases = {
-        "fraser": "fraser_road",
-        "fraserroad": "fraser_road",
-        "junction": "patna_junction",
-        "patna_junction": "patna_junction",
-        "danapur": "danapur_station",
-        "danapur_station": "danapur_station",
-        "rukanpura": "rukanpura",
-        "bailey": "rukanpura",
+        "dakbangla": "dakbangla_chauraha",
+        "dakbangla_chauraha": "dakbangla_chauraha",
+        "dak_bungalow": "dakbangla_chauraha",
+        "dakbungla": "dakbangla_chauraha",
+        "boring": "boring_road",
+        "boring_road": "boring_road",
+        "jagdeo": "rukanpura_jagdeo_path",
+        "rukanpura_jagdeo_path": "rukanpura_jagdeo_path",
+        "rukanpura": "rukanpura_jagdeo_path",
+        "mithapur": "mithapur_bypass",
+        "mithapur_bypass": "mithapur_bypass",
+        # legacy ids from older waves
+        "fraser": "dakbangla_chauraha",
+        "fraser_road": "dakbangla_chauraha",
+        "junction": "boring_road",
+        "patna_junction": "boring_road",
+        "danapur": "mithapur_bypass",
+        "danapur_station": "mithapur_bypass",
     }
     if raw in SCREENS:
         return raw
     for key, screen in aliases.items():
         if key in raw:
             return screen
-    return "fraser_road"
+    return "dakbangla_chauraha"
 
 
 def _existing_companies() -> set[str]:
@@ -266,7 +281,8 @@ def discover_prospects(limit: int) -> list[dict]:
     all_labels = ", ".join(row["industry"] for row in FOCUS_INDUSTRIES)
 
     prompt = f"""You are sourcing B2B cold-outreach prospects for Loky Media, a Patna DOOH
-(roadside LED) network with screens on Fraser Road, Patna Junction, Danapur Station, and Rukanpura.
+(roadside LED) network with screens on Dakbangla Chauraha (2 screens), Boring Road (3 screens),
+Rukanpura Jagdeo Path, and Mithapur Bypass.
 
 Today is {day} (Asia/Kolkata). Durga Puja is approaching — prioritize festive-budget buyers.
 
@@ -276,7 +292,7 @@ ALLOWED industries only (do not invent other categories). Today's focus slice:
 Full operator allowlist (stay inside this set): {all_labels}
 
 Use web search to find REAL companies currently operating in Patna (or clear Patna branches)
-that could buy a 10-second HD spot for Durga Puja / festive visibility.
+that could buy a 20 seconds / 30 seconds HD spot for Durga Puja / festive visibility.
 
 Return exactly {limit} prospects spanning the {len(focus_labels)} focus industries above
 ({", ".join(focus_labels)}).
@@ -289,7 +305,7 @@ Rules:
 - Prefer local operators or clear Patna branches of regional / national brands
 - Cover as many of today's focus industries as possible; diversify
 - Do not repeat the same company
-- nearest_screen must be one of: fraser_road, patna_junction, danapur_station, rukanpura
+- nearest_screen must be one of: dakbangla_chauraha, boring_road, rukanpura_jagdeo_path, mithapur_bypass
 - Include website when found
 - Prefer brands likely to run Puja-season offers, launches, or footfall drives
 """
