@@ -12,9 +12,9 @@ Env:
   SUPABASE_SERVICE_ROLE_KEY
   SUPABASE_LEADS_TABLE   (default: emailer-table)
   GEMINI_MODEL           (default: gemini-3.6-flash)
-  GATHER_INDUSTRIES      (default: 3)
-  GATHER_COMPANIES_PER_INDUSTRY (default: 2)
-  GATHER_MAX_LEADS       (optional hard cap; default = industries * companies)
+  GATHER_INDUSTRIES      (default: 10)
+  GATHER_COMPANIES_PER_INDUSTRY (hint only; counts may vary)
+  GATHER_MAX_LEADS       (default: 25 — hard cap on researched leads)
 """
 
 from __future__ import annotations
@@ -203,8 +203,8 @@ def _generate_json(prompt: str, schema: type[BaseModel]) -> dict:
 
 def discover_prospects(limit: int) -> list[dict]:
     """Use Gemini + Google Search to pick a fresh Patna prospect set for today."""
-    industries = env_int("GATHER_INDUSTRIES", 3)
-    per_industry = env_int("GATHER_COMPANIES_PER_INDUSTRY", 2)
+    industries = env_int("GATHER_INDUSTRIES", 10)
+    per_industry = env_int("GATHER_COMPANIES_PER_INDUSTRY", 3)
     day = datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%A %d %B %Y")
 
     prompt = f"""You are sourcing B2B cold-outreach prospects for Loky Media, a Patna DOOH
@@ -214,13 +214,17 @@ Today is {day} (Asia/Kolkata).
 
 Use web search to find REAL companies currently operating in Patna that could buy a
 10-second HD spot (hospitals, auto dealers, hotels/banquets, coaching, diagnostics, retail,
-jewellery, real estate, education, F&B with local Patna presence).
+jewellery, real estate, education, F&B, clinics, showrooms — local Patna presence).
 
-Return exactly {limit} prospects (aim for ~{industries} niches × ~{per_industry} companies).
+Return exactly {limit} prospects spanning at least {industries} different industries/niches.
+Companies per industry may vary (e.g. 1–4); do not force an even split.
+Rough guide only: around {per_industry} per niche on average is fine.
+
 Rules:
 - Must be real named businesses with Patna / Bihar presence (not invented)
 - Prefer local operators or clear Patna branches of regional brands
-- Diversify industries; do not repeat the same company
+- Cover at least {industries} distinct industries; diversify
+- Do not repeat the same company
 - nearest_screen must be one of: fraser_road, patna_junction, danapur_station, rukanpura
 - Include website when found
 """
@@ -347,13 +351,13 @@ def process_lead_queries(queries: list[dict]) -> None:
 
 
 def build_daily_target_list() -> list[dict]:
-    industries = env_int("GATHER_INDUSTRIES", 3)
-    per_industry = env_int("GATHER_COMPANIES_PER_INDUSTRY", 2)
-    max_leads = env_int("GATHER_MAX_LEADS", industries * per_industry)
+    industries = env_int("GATHER_INDUSTRIES", 10)
+    per_industry = env_int("GATHER_COMPANIES_PER_INDUSTRY", 3)
+    max_leads = env_int("GATHER_MAX_LEADS", 25)
 
     print(
         f"Discovering up to {max_leads} Patna prospects "
-        f"({industries} niches × {per_industry})..."
+        f"(≥{industries} industries, flexible companies/niche, hint≈{per_industry}/niche)..."
     )
     discovered = discover_prospects(max_leads)
     known = _existing_companies()

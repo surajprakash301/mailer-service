@@ -13,16 +13,16 @@ services:
         value: data
       - key: DISABLE_INTERNAL_CRON
         value: "true"
+      - key: GATHER_INDUSTRIES
+        value: "10"
+      - key: GATHER_COMPANIES_PER_INDUSTRY
+        value: "3"
+      - key: MAX_EMAILS_PER_DAY
+        value: "25"
       - key: DRY_RUN
         value: "true"
       - key: WHATSAPP_DRY_RUN
         value: "true"
-      - key: GATHER_INDUSTRIES
-        value: "1"
-      - key: GATHER_COMPANIES_PER_INDUSTRY
-        value: "1"
-      - key: MAX_EMAILS_PER_DAY
-        value: "25"
       - key: GEMINI_API_KEY
         sync: false
       - key: GEMINI_MODEL
