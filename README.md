@@ -63,51 +63,7 @@ curl -s -X POST http://localhost:8787/api/campaigns/run \
   -H "x-cron-secret: $CRON_SECRET"
 ```
 
-Skim leads between the two jobs via the UI or `data/leads.json`. Keep the Node process alive (Railway / PM2) so both crons fire. When `CRON_SECRET` is set, ops routes require header `x-cron-secret`.
-
-## Deploy on AWS EC2
-
-Target instance: **`i-0cdf95d16094aca23`** (Loky Media). Repo: [surajprakash301/mailer-service](https://github.com/surajprakash301/mailer-service).
-
-### On the server
-
-```bash
-# SSH (Amazon Linux: ec2-user, Ubuntu: ubuntu)
-ssh -i /path/to/emailer_pair_key.pem ec2-user@PUBLIC_IP
-
-# One-shot install + deploy
-curl -fsSL https://raw.githubusercontent.com/surajprakash301/mailer-service/main/deploy/ec2-setup.sh | sudo bash
-# Or after clone:
-# sudo bash /opt/mailer/deploy/ec2-setup.sh
-```
-
-Then edit secrets (never commit):
-
-```bash
-sudo nano /opt/mailer/.env
-# DATA_DIR=/data
-# CRON_SECRET=long-random
-# OPENAI_API_KEY=...
-# RESEND_API_KEY=...
-# DRY_RUN=true   # flip to false when ready
-sudo docker compose -f /opt/mailer/docker-compose.yml up -d --build
-```
-
-### Security group
-
-Allow inbound **TCP 8787** from your IP (or only from the nginx host). Prefer reverse-proxying `mailer.lokymedia.com` → `127.0.0.1:8787` on 80/443 if this box already serves lokymedia.com.
-
-### Verify
-
-```bash
-curl -s http://PUBLIC_IP:8787/api/health
-curl -s -X POST http://PUBLIC_IP:8787/api/pipeline/gather \
-  -H 'Content-Type: application/json' \
-  -H "x-cron-secret: YOUR_CRON_SECRET" \
-  -d '{}'
-```
-
-Leads persist in `/opt/mailer/data` on the instance disk.
+Skim leads between the two jobs via the UI or `data/leads.json`. Keep the Node process alive (Railway) so both crons fire. When `CRON_SECRET` is set, ops routes require header `x-cron-secret`.
 
 ## Deploy on Railway
 
