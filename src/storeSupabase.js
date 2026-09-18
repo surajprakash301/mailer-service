@@ -228,9 +228,20 @@ export async function upsertLead(fields, input = {}) {
   }
 
   if (existing) {
+    const incomingEmail = String(fields.email || "").trim().toLowerCase();
+    const existingEmail = String(existing.email || "").trim().toLowerCase();
+    const incomingIsMock = !incomingEmail || incomingEmail.endsWith("@loky-mock.test");
+    const existingIsPublic =
+      existingEmail && !existingEmail.endsWith("@loky-mock.test") && existingEmail.includes("@");
+
     const patch = {
       ...fields,
-      emailSource: input.emailSource || existing.email_source || fields.emailSource || "",
+      // Never replace a known public inbox with a mock placeholder
+      email: incomingIsMock && existingIsPublic ? existing.email : fields.email,
+      emailSource:
+        incomingIsMock && existingIsPublic
+          ? existing.email_source || "public"
+          : input.emailSource || existing.email_source || fields.emailSource || "",
       sources: Array.isArray(input.sources) ? input.sources : parseSources(existing.sources),
       phone: fields.phone || existing.phone || "",
       updatedAt: stamp,

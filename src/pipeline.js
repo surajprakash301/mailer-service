@@ -1,5 +1,6 @@
 import { generateForLead, sendForLead } from "./campaign.js";
 import { config } from "./config.js";
+import { isDeliverableEmail } from "./emailUtils.js";
 import { logError } from "./errors.js";
 import { pickBoomingIndustries } from "./market.js";
 import { discoverQueries, researchProspect } from "./research.js";
@@ -14,24 +15,55 @@ export async function runResearchPipeline({
   website = "",
   generate = true,
   send = true,
+  /** When true, do not pull already-sent public leads back into the send queue */
+  preserveSent = true,
 } = {}) {
   const steps = [];
 
   const research = await researchProspect({ query, website });
   steps.push(step("research", true, research.summary));
 
+  const beforeList = await listLeads();
+  const companyKey = String(research.lead.company || "")
+    .trim()
+    .toLowerCase();
+  const prior = beforeList.find(
+    (l) =>
+      (companyKey && String(l.company || "").toLowerCase() === companyKey) ||
+      (research.lead.email && l.email === research.lead.email),
+  );
+
   let lead = await upsertLead({
     ...research.lead,
     researchQuery: query,
   });
+
+  const keepSent =
+    preserveSent &&
+    prior?.status === "sent" &&
+    isDeliverableEmail(prior.email) &&
+    isDeliverableEmail(lead.email) &&
+    String(prior.email).toLowerCase() === String(lead.email).toLowerCase();
+
   lead = await updateLead(lead.id, {
     website: research.lead.website,
     emailSource: research.lead.emailSource,
     sources: research.lead.sources,
     researchQuery: query,
-    status: "researched",
+    phone: research.lead.phone || prior?.phone || lead.phone || "",
+    status: keepSent ? "sent" : "researched",
   });
-  steps.push(step("save", true, `Saved ${lead.company}`));
+  steps.push(
+    step(
+      "save",
+      true,
+      keepSent ? `Refreshed ${lead.company} (already sent — not re-queued)` : `Saved ${lead.company}`,
+    ),
+  );
+
+  if (keepSent) {
+    return { research, lead, steps, created: !prior, refreshed: Boolean(prior), requeued: false };
+  }
 
   if (generate) {
     try {
@@ -49,7 +81,15 @@ export async function runResearchPipeline({
       const sent = await sendForLead(await getLead(lead.id), { force: true });
       lead = sent.lead;
       steps.push(step("send", true, lead.lastError === "dry-run" ? "Mock send (DRY_RUN)" : "Sent"));
-      return { research, lead, steps, mail: sent.mail };
+      return {
+        research,
+        lead,
+        steps,
+        mail: sent.mail,
+        created: !prior,
+        refreshed: Boolean(prior),
+        requeued: true,
+      };
     } catch (err) {
       logError("pipeline.send", err);
       steps.push(step("send", false, err.message));
@@ -57,7 +97,14 @@ export async function runResearchPipeline({
     }
   }
 
-  return { research, lead, steps };
+  return {
+    research,
+    lead,
+    steps,
+    created: !prior,
+    refreshed: Boolean(prior),
+    requeued: true,
+  };
 }
 
 function slugEmail(company) {
@@ -229,8 +276,9 @@ export async function runDiscoveryPipeline({ query, limit = 3, generate = true, 
 }
 
 /**
- * Morning gather: AI market pick → discover companies → save leads → draft pitches.
- * Never sends email (8:45 send cron handles dispatch after operator skim).
+ * Morning gather: AI market pick → discover companies → always research + upsert.
+ * Never skips existing companies (refreshes them). Does not send email.
+ * Incomplete / mock-email leads are still drafted so send can pursue email or WhatsApp.
  */
 export async function runMorningGather({
   industryLimit = config.gatherIndustries,
@@ -239,37 +287,31 @@ export async function runMorningGather({
 } = {}) {
   const sentToday = await countSentToday(config.timezone);
   const remaining = Math.max(0, config.maxEmailsPerDay - sentToday);
-  const maxNew = Math.max(0, Math.min(remaining, industryLimit * companiesPerIndustry));
+  const maxTargets = Math.max(1, industryLimit * companiesPerIndustry);
 
   const report = {
     dryRun: config.dryRun,
     sentToday,
     remaining,
-    maxNew,
+    maxTargets,
     industries: [],
     added: 0,
+    refreshed: 0,
     drafted: 0,
     skipped: 0,
     failed: [],
     results: [],
   };
 
-  if (maxNew === 0) {
-    report.skipped = 1;
-    report.note = "Daily send headroom is 0; gather skipped";
-    return report;
-  }
-
   const industries = await pickBoomingIndustries(industryLimit);
   report.industries = industries;
 
-  const existing = await listLeads();
-  const knownCompanies = new Set(
-    existing.map((l) => String(l.company || "").toLowerCase()).filter(Boolean),
-  );
+  // Only de-dupe within this run — never skip because the company already exists in DB
+  const seenThisRun = new Set();
+  let processed = 0;
 
   for (const niche of industries) {
-    if (report.added >= maxNew) break;
+    if (processed >= maxTargets) break;
 
     let prospects = [];
     try {
@@ -284,20 +326,21 @@ export async function runMorningGather({
     }
 
     for (const prospect of prospects) {
-      if (report.added >= maxNew) break;
+      if (processed >= maxTargets) break;
 
       const companyKey = String(prospect.company || "").toLowerCase();
-      if (companyKey && knownCompanies.has(companyKey)) {
+      if (companyKey && seenThisRun.has(companyKey)) {
         report.skipped += 1;
         report.results.push({
           ok: true,
           skipped: true,
           company: prospect.company,
-          reason: "already_exists",
+          reason: "duplicate_in_batch",
           industry: niche.industry,
         });
         continue;
       }
+      if (companyKey) seenThisRun.add(companyKey);
 
       try {
         const run = await runResearchPipeline({
@@ -305,21 +348,25 @@ export async function runMorningGather({
           website: prospect.website || "",
           generate,
           send: false,
+          preserveSent: true,
         });
 
-        const emailKey = String(run.lead.email || "").toLowerCase();
-        if (run.lead.company) knownCompanies.add(String(run.lead.company).toLowerCase());
-
-        report.added += 1;
-        if (run.lead.subject && run.lead.body) report.drafted += 1;
+        processed += 1;
+        if (run.created) report.added += 1;
+        else report.refreshed += 1;
+        if (run.lead.subject && run.lead.body && run.requeued !== false) report.drafted += 1;
 
         report.results.push({
           ok: true,
           skipped: false,
+          created: Boolean(run.created),
+          refreshed: Boolean(run.refreshed),
+          requeued: run.requeued !== false,
           company: run.lead.company,
           leadId: run.lead.id,
           status: run.lead.status,
           email: run.lead.email,
+          emailSource: run.lead.emailSource,
           industry: niche.industry,
           steps: run.steps,
         });

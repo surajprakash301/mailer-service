@@ -64,6 +64,7 @@ function compactGatherReport(report = {}) {
     job: "gather",
     dryRun: report.dryRun,
     added: report.added,
+    refreshed: report.refreshed || 0,
     drafted: report.drafted,
     skipped: report.skipped,
     failed: Array.isArray(report.failed) ? report.failed.length : report.failed || 0,
@@ -278,6 +279,7 @@ router.post("/pipeline/gather", requireCronSecret, asyncRoute(async (req, res) =
   await recordCronRun("gather", {
     industries: report.industries?.map((i) => i.industry),
     added: report.added,
+    refreshed: report.refreshed || 0,
     drafted: report.drafted,
     skipped: report.skipped,
     failed: report.failed?.length || 0,

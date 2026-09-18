@@ -325,8 +325,18 @@ export async function upsertLead(input) {
         (companyKey && lead.company && lead.company.toLowerCase() === companyKey),
     );
     if (existing) {
+      const incomingEmail = String(fields.email || "").trim().toLowerCase();
+      const existingEmail = String(existing.email || "").trim().toLowerCase();
+      const incomingIsMock = !incomingEmail || incomingEmail.endsWith("@loky-mock.test");
+      const existingIsPublic =
+        existingEmail && !existingEmail.endsWith("@loky-mock.test") && existingEmail.includes("@");
       Object.assign(existing, fields);
-      if (input.emailSource) existing.emailSource = input.emailSource;
+      if (incomingIsMock && existingIsPublic) {
+        existing.email = existingEmail;
+        existing.emailSource = existing.emailSource || "public";
+      } else if (input.emailSource) {
+        existing.emailSource = input.emailSource;
+      }
       if (Array.isArray(input.sources)) existing.sources = input.sources;
       if (fields.phone) existing.phone = fields.phone;
       existing.updatedAt = nowIso();

@@ -23,6 +23,7 @@ export function startScheduler() {
         const summary = {
           industries: report.industries?.map((i) => i.industry),
           added: report.added,
+          refreshed: report.refreshed || 0,
           drafted: report.drafted,
           skipped: report.skipped,
           failed: report.failed?.length || 0,
