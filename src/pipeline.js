@@ -2,6 +2,7 @@ import { generateForLead, sendForLead } from "./campaign.js";
 import { config } from "./config.js";
 import { isDeliverableEmail } from "./emailUtils.js";
 import { logError } from "./errors.js";
+import { statusAfterDraft } from "./leadStatus.js";
 import { pickBoomingIndustries } from "./market.js";
 import { discoverQueries, researchProspect } from "./research.js";
 import { countSentToday, getLead, listLeads, updateLead, upsertLead } from "./store.js";
@@ -391,7 +392,10 @@ export async function runMorningGather({
         if (run.requeued !== false) {
           lead = await updateLead(lead.id, {
             queryWave: gatherWave,
-            status: lead.subject && lead.body ? "ready" : lead.status,
+            status:
+              lead.subject && lead.body
+                ? statusAfterDraft(lead)
+                : lead.status,
           });
           report.requeued += 1;
           if (sendable) {

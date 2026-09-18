@@ -20,6 +20,12 @@ import {
   updateLead,
   useSupabaseStore,
 } from "./store.js";
+import {
+  STATUS_TO_SEND,
+  displayStatus,
+  followedAt,
+  isToBeSent,
+} from "./leadStatus.js";
 
 export const router = Router();
 
@@ -128,12 +134,22 @@ router.get("/health", asyncRoute(async (_req, res) => {
 router.get("/stats", asyncRoute(async (_req, res) => {
   const leads = await listLeads();
   const sentToday = await countSentToday(config.timezone);
+  const drafted = leads.filter((l) => l.subject && l.body);
+  const publicEmail = leads.filter((l) => l.emailSource === "public");
+  const mockEmail = leads.filter((l) => l.emailSource === "mock" || String(l.email || "").endsWith("@loky-mock.test"));
+  const gathered = leads.filter((l) => l.status !== "sent");
+  const toSend = leads.filter((l) => isToBeSent(l));
   res.json({
     total: leads.length,
     pending: leads.filter((l) => l.status === "pending").length,
-    ready: leads.filter((l) => l.status === "ready").length,
+    ready: leads.filter((l) => l.status === "ready" && !isToBeSent(l)).length,
+    toSend: toSend.length,
     sent: leads.filter((l) => l.status === "sent").length,
     failed: leads.filter((l) => l.status === "failed").length,
+    drafted: drafted.length,
+    gathered: gathered.length,
+    publicEmail: publicEmail.length,
+    mockEmail: mockEmail.length,
     sentToday,
     remainingToday: Math.max(0, config.maxEmailsPerDay - sentToday),
     dryRun: config.dryRun,
@@ -142,7 +158,47 @@ router.get("/stats", asyncRoute(async (_req, res) => {
 
 router.get("/leads", asyncRoute(async (_req, res) => {
   const leads = await listLeads();
-  res.json({ leads });
+  // Normalize display + backfill to_send for deliverable drafts still marked ready
+  const enriched = [];
+  for (const lead of leads) {
+    const display = displayStatus(lead);
+    if (display === STATUS_TO_SEND && lead.status !== STATUS_TO_SEND && lead.status !== "sent") {
+      try {
+        const updated = await updateLead(lead.id, { status: STATUS_TO_SEND });
+        enriched.push({
+          ...(updated || lead),
+          status: STATUS_TO_SEND,
+          displayStatus: STATUS_TO_SEND,
+          followedAt: followedAt(updated || lead),
+        });
+        continue;
+      } catch (err) {
+        logError(`leads.normalize to_send ${lead.id}`, err);
+      }
+    }
+    enriched.push({
+      ...lead,
+      status: display === STATUS_TO_SEND ? STATUS_TO_SEND : lead.status,
+      displayStatus: display,
+      followedAt: followedAt(lead),
+    });
+  }
+  res.json({ leads: enriched });
+}));
+
+/** Render the branded HTML email exactly as Resend would send it for one lead. */
+router.get("/leads/:id/email", asyncRoute(async (req, res) => {
+  const lead = await getLead(req.params.id);
+  if (!lead) return notFound(res);
+  if (!lead.body) {
+    return res.status(404).json({ error: "No drafted email body for this lead yet" });
+  }
+  const html = buildLokyEmailHtml({
+    subject: lead.subject,
+    body: lead.body,
+    lead,
+  });
+  res.type("html").send(html);
 }));
 
 router.post("/leads", asyncRoute(async (req, res) => {

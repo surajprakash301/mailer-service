@@ -193,14 +193,16 @@ leadsEl.addEventListener("click", async (event) => {
       await refresh();
     }
     if (act === "preview") {
-      const { lead } = await api(`/leads/${id}`);
+      const { lead } = await api(`/leads/${encodeURIComponent(id)}`);
       fillForm(lead);
       document.getElementById("preview-title").textContent = lead.company || lead.email;
       document.getElementById("preview-subject").textContent = lead.subject || "(not generated)";
       document.getElementById("preview-body").textContent = lead.body || "";
-      document.getElementById("preview-words").textContent = lead.wordCount
-        ? `${lead.wordCount} words`
-        : "";
+      const htmlLink = lead.body
+        ? `<a href="/api/leads/${encodeURIComponent(lead.id)}/email" target="_blank" rel="noopener">View HTML email</a>`
+        : "No draft yet";
+      document.getElementById("preview-words").innerHTML =
+        (lead.wordCount ? `${lead.wordCount} words · ` : "") + htmlLink;
       preview.showModal();
     }
   } catch (err) {

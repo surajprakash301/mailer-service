@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Loky Outreach Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Syne:wght@600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/dashboard.css" />
+  </head>
+  <body>
+    <div class="shell">
+      <header class="top">
+        <div class="brand-block">
+          <p class="eyebrow">Loky Media · Patna DOOH</p>
+          <h1>Outreach dashboard</h1>
+          <p class="lede">Gathered leads, sent mail, and the exact HTML each prospect sees.</p>
+        </div>
+        <div class="top-aside">
+          <p class="meta" id="meta">Loading…</p>
+          <nav class="nav">
+            <a href="/dashboard" aria-current="page">Dashboard</a>
+            <a href="/">Operator</a>
+            <a href="https://console.cron-job.org/jobs" target="_blank" rel="noopener noreferrer">Cron jobs ↗</a>
+          </nav>
+        </div>
+      </header>
+
+      <section class="stats" id="stats" aria-label="Pipeline stats"></section>
+      <section class="cron-bar" id="cron-bar" aria-label="Cron services"></section>
+
+      <section class="controls">
+        <div class="filters" role="tablist" aria-label="Lead filters">
+          <button type="button" class="filter is-active" data-filter="all" role="tab" aria-selected="true">All</button>
+          <button type="button" class="filter" data-filter="to_send" role="tab" aria-selected="false">To be sent</button>
+          <button type="button" class="filter" data-filter="gathered" role="tab" aria-selected="false">Gathered</button>
+          <button type="button" class="filter" data-filter="sent" role="tab" aria-selected="false">Sent</button>
+          <button type="button" class="filter" data-filter="ready" role="tab" aria-selected="false">Awaiting email</button>
+          <button type="button" class="filter" data-filter="failed" role="tab" aria-selected="false">Failed</button>
+          <button type="button" class="filter" data-filter="public" role="tab" aria-selected="false">Public email</button>
+        </div>
+        <div class="control-right">
+          <div class="date-filters">
+            <label>
+              <span>Date field</span>
+              <select id="date-field">
+                <option value="added">Added</option>
+                <option value="followed">Followed / to-send</option>
+                <option value="sent">Sent</option>
+                <option value="updated">Updated</option>
+              </select>
+            </label>
+            <label>
+              <span>From</span>
+              <input type="date" id="date-from" />
+            </label>
+            <label>
+              <span>To</span>
+              <input type="date" id="date-to" />
+            </label>
+            <div class="date-presets" role="group" aria-label="Date presets">
+              <button type="button" class="ghost compact" data-preset="today">Today</button>
+              <button type="button" class="ghost compact" data-preset="yesterday">Yesterday</button>
+              <button type="button" class="ghost compact" data-preset="7d">7 days</button>
+              <button type="button" class="ghost compact" data-preset="clear">Clear</button>
+            </div>
+          </div>
+          <label class="search">
+            <span class="sr-only">Search leads</span>
+            <input type="search" id="search" placeholder="Search company, email, industry…" autocomplete="off" />
+          </label>
+        </div>
+      </section>
+
+      <section class="workspace">
+        <div class="list-pane">
+          <div class="pane-head">
+            <h2>Leads</h2>
+            <span class="count" id="list-count">0</span>
+          </div>
+          <div class="lead-list" id="leads" role="list"></div>
+        </div>
+      </section>
+    </div>
+
+    <script src="/dashboard.js"></script>
+  </body>
+</html>

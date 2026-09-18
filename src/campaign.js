@@ -4,6 +4,13 @@ import { logError } from "./errors.js";
 import { generatePitch } from "./llm.js";
 import { sendPitch, sleep } from "./mailer.js";
 import {
+  STATUS_FAILED,
+  STATUS_READY,
+  STATUS_SENT,
+  STATUS_TO_SEND,
+  statusAfterDraft,
+} from "./leadStatus.js";
+import {
   countSentToday,
   eligibleForSend,
   listLeads,
@@ -13,11 +20,17 @@ import { checkWhatsAppNumber, sendWhatsAppPitch } from "./whatsapp.js";
 
 export async function generateForLead(lead) {
   const copy = await generatePitch(lead);
+  const next = {
+    ...lead,
+    subject: copy.subject,
+    body: copy.body,
+    email: lead.email,
+  };
   return updateLead(lead.id, {
     subject: copy.subject,
     body: copy.body,
     wordCount: copy.wordCount,
-    status: "ready",
+    status: statusAfterDraft(next),
     generatedAt: new Date().toISOString(),
     lastError: "",
   });
@@ -63,7 +76,7 @@ export async function sendForLead(lead, { force = false, whatsapp = true, forceL
   if (!eligibleForSend(lead)) {
     throw Object.assign(new Error("Lead has no generated copy yet"), { status: 400 });
   }
-  if (lead.status === "sent" && !force) {
+  if (lead.status === STATUS_SENT && !force) {
     throw Object.assign(new Error("Lead already sent"), { status: 409 });
   }
 
@@ -100,7 +113,7 @@ export async function sendForLead(lead, { force = false, whatsapp = true, forceL
   if (!canEmail && !waOk) {
     // Keep in queue for a later gather/send once a public email or WA is available
     updated = await updateLead(lead.id, {
-      status: "ready",
+      status: STATUS_READY,
       lastError: `${mailSkippedReason}; awaiting public email or WhatsApp`,
     });
     return {
@@ -118,7 +131,7 @@ export async function sendForLead(lead, { force = false, whatsapp = true, forceL
   }
 
   updated = await updateLead(updated.id, {
-    status: "sent",
+    status: STATUS_SENT,
     sentAt: new Date().toISOString(),
     lastError: mail?.dryRun
       ? "dry-run"
@@ -184,7 +197,7 @@ export async function runDailyCampaign() {
     let s = 0;
     if (isDeliverableEmail(lead.email)) s += 100;
     if (lead.queryWave === wave) s += 50;
-    if (lead.status === "ready") s += 10;
+    if (lead.status === STATUS_TO_SEND || lead.status === STATUS_READY) s += 10;
     return s;
   };
 
@@ -192,7 +205,8 @@ export async function runDailyCampaign() {
     .filter(
       (lead) =>
         lead.queryWave === wave ||
-        (lead.status === "ready" && daysSince(lead.generatedAt || lead.updatedAt) < 1),
+        ((lead.status === STATUS_TO_SEND || lead.status === STATUS_READY) &&
+          daysSince(lead.generatedAt || lead.updatedAt) < 1),
     )
     .sort((a, b) => score(b) - score(a));
 
@@ -200,14 +214,16 @@ export async function runDailyCampaign() {
     .filter(
       (lead) =>
         !fromGather.some((g) => g.id === lead.id) &&
-        ["ready", "researched", "pending", "failed"].includes(String(lead.status || "")),
+        [STATUS_TO_SEND, STATUS_READY, "researched", "pending", STATUS_FAILED].includes(
+          String(lead.status || ""),
+        ),
     )
     .sort((a, b) => score(b) - score(a));
 
   const staleSent = leads
     .filter(
       (lead) =>
-        lead.status === "sent" &&
+        lead.status === STATUS_SENT &&
         lead.sentAt &&
         daysSince(lead.sentAt) >= reEngageDays &&
         !fromGather.some((g) => g.id === lead.id),
@@ -244,7 +260,7 @@ export async function runDailyCampaign() {
       let current = lead;
       if (bucket === "reengage") {
         current = await updateLead(lead.id, {
-          status: "ready",
+          status: statusAfterDraft({ ...lead, subject: lead.subject, body: lead.body }),
           lastError: `re-engage after ${reEngageDays}d`,
         });
         report.reEngaged += 1;
@@ -265,7 +281,7 @@ export async function runDailyCampaign() {
       logError(`campaign lead=${lead.id} email=${lead.email}`, err);
       report.failed.push({ id: lead.id, email: lead.email, error: err.message, bucket });
       try {
-        await updateLead(lead.id, { status: "failed", lastError: err.message });
+        await updateLead(lead.id, { status: STATUS_FAILED, lastError: err.message });
       } catch (persistErr) {
         logError(`campaign persist failure for lead=${lead.id}`, persistErr);
       }
