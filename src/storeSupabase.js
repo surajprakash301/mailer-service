@@ -33,12 +33,15 @@ function sourcesForDb(sources) {
   return sources.map(String).filter(Boolean).join("; ");
 }
 
-/** DB row (snake_case) → app lead (camelCase) */
+/** DB row (snake_case) → app lead (camelCase).
+ *  emailer-table may have no `id` / `created_at` (CSV-imported schema) — use company as id.
+ */
 export function rowToLead(row) {
   if (!row) return null;
+  const company = row.company || "";
   return {
-    id: String(row.id),
-    company: row.company || "",
+    id: String(row.id ?? (company || row.email || "")),
+    company,
     contactName: row.contact_name || "",
     email: row.email || "",
     title: row.title || "",
@@ -65,7 +68,7 @@ export function rowToLead(row) {
     lastError: row.last_error || "",
     sentAt: row.sent_at || null,
     generatedAt: row.generated_at || null,
-    createdAt: row.created_at || null,
+    createdAt: row.created_at || row.updated_at || null,
     updatedAt: row.updated_at || null,
   };
 }
@@ -124,23 +127,31 @@ export function leadToRow(lead = {}, { forInsert = false } = {}) {
   } else if (forInsert || Object.keys(row).length) {
     row.updated_at = nowIso();
   }
-  if (forInsert && lead.createdAt) row.created_at = lead.createdAt;
-  // Never send id on insert — table may use bigint identity from CSV import
+  // Do not write created_at — CSV-imported emailer-table may lack that column
   return row;
 }
 
 export async function listLeads() {
-  const { data, error } = await getSupabase().from(table()).select("*").order("created_at", {
-    ascending: false,
-  });
+  const { data, error } = await getSupabase()
+    .from(table())
+    .select("*")
+    .order("updated_at", { ascending: false });
   if (error) throwSb("supabase.listLeads", error);
   return (data || [])
     .map(rowToLead)
     .filter((lead) => lead && lead.company !== "__loky_cron_meta__" && lead.status !== "system");
 }
 
+function leadKeyFilter(query, key) {
+  const value = String(key || "").trim();
+  if (!value) return query;
+  // Prefer company as durable key; also accept email lookups
+  if (value.includes("@")) return query.eq("email", value.toLowerCase());
+  return query.eq("company", value);
+}
+
 export async function getLead(id) {
-  const { data, error } = await getSupabase().from(table()).select("*").eq("id", id).maybeSingle();
+  const { data, error } = await leadKeyFilter(getSupabase().from(table()).select("*"), id).maybeSingle();
   if (error) throwSb("supabase.getLead", error);
   return rowToLead(data);
 }
@@ -175,7 +186,7 @@ export async function createLead(fields) {
 
   const { data: existing, error: findErr } = await getSupabase()
     .from(table())
-    .select("id")
+    .select("company,email")
     .eq("email", fields.email)
     .maybeSingle();
   if (findErr) throwSb("supabase.createLead.find", findErr);
@@ -210,8 +221,7 @@ export async function upsertLead(fields, input = {}) {
     const { data, error } = await getSupabase()
       .from(table())
       .select("*")
-      .ilike("company", fields.company)
-      .limit(1)
+      .eq("company", fields.company)
       .maybeSingle();
     if (error) throwSb("supabase.upsertLead.byCompany", error);
     existing = data;
@@ -228,7 +238,7 @@ export async function upsertLead(fields, input = {}) {
     const { data, error } = await getSupabase()
       .from(table())
       .update(leadToRow(patch))
-      .eq("id", existing.id)
+      .eq("company", existing.company)
       .select("*")
       .single();
     if (error) throwSb("supabase.upsertLead.update", error);
@@ -306,10 +316,13 @@ export async function updateLead(id, patch) {
   }
   next.updatedAt = nowIso();
 
+  const current = await getLead(id);
+  if (!current) return null;
+
   const { data, error } = await getSupabase()
     .from(table())
     .update(leadToRow(next))
-    .eq("id", id)
+    .eq("company", current.company)
     .select("*")
     .maybeSingle();
   if (error) throwSb("supabase.updateLead", error);
@@ -317,7 +330,13 @@ export async function updateLead(id, patch) {
 }
 
 export async function deleteLead(id) {
-  const { data, error } = await getSupabase().from(table()).delete().eq("id", id).select("id");
+  const current = await getLead(id);
+  if (!current?.company) return false;
+  const { data, error } = await getSupabase()
+    .from(table())
+    .delete()
+    .eq("company", current.company)
+    .select("company");
   if (error) throwSb("supabase.deleteLead", error);
   return Array.isArray(data) && data.length > 0;
 }
