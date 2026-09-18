@@ -38,12 +38,50 @@ function notFound(res) {
   return res.status(404).json({ error: "Lead not found" });
 }
 
-/** When CRON_SECRET is set, require matching x-cron-secret header. */
+/** When CRON_SECRET is set, require matching secret via header / bearer / body / query. */
 function requireCronSecret(req, res, next) {
   if (!config.cronSecret) return next();
-  const provided = String(req.get("x-cron-secret") || req.body?.cronSecret || "").trim();
+  const auth = String(req.get("authorization") || "").trim();
+  const bearer = auth.toLowerCase().startsWith("bearer ") ? auth.slice(7).trim() : "";
+  const provided = String(
+    req.get("x-cron-secret") ||
+      bearer ||
+      req.body?.cronSecret ||
+      req.query?.cronSecret ||
+      req.query?.secret ||
+      "",
+  ).trim();
   if (provided && provided === config.cronSecret) return next();
-  return res.status(401).json({ error: "Unauthorized: missing or invalid x-cron-secret" });
+  return res.status(401).json({
+    error: "Unauthorized: missing or invalid cron secret",
+    hint: "Send header x-cron-secret (or Authorization: Bearer <CRON_SECRET>) matching Render CRON_SECRET",
+  });
+}
+
+function compactGatherReport(report = {}) {
+  return {
+    ok: true,
+    job: "gather",
+    dryRun: report.dryRun,
+    added: report.added,
+    drafted: report.drafted,
+    skipped: report.skipped,
+    failed: Array.isArray(report.failed) ? report.failed.length : report.failed || 0,
+    industries: (report.industries || []).map((i) => i.industry || i).filter(Boolean),
+    note: report.note || "",
+  };
+}
+
+function compactSendReport(report = {}) {
+  return {
+    ok: true,
+    job: "send",
+    dryRun: report.dryRun,
+    sent: report.sent,
+    generated: report.generated,
+    skipped: report.skipped,
+    failed: Array.isArray(report.failed) ? report.failed.length : report.failed || 0,
+  };
 }
 
 router.get("/health", asyncRoute(async (_req, res) => {
@@ -178,7 +216,7 @@ router.post("/mail/send-live", requireCronSecret, asyncRoute(async (req, res) =>
   });
 }));
 
-router.post("/campaigns/run", requireCronSecret, asyncRoute(async (_req, res) => {
+router.post("/campaigns/run", requireCronSecret, asyncRoute(async (req, res) => {
   const report = await runDailyCampaign();
   await recordCronRun("send", {
     dryRun: report.dryRun,
@@ -188,7 +226,8 @@ router.post("/campaigns/run", requireCronSecret, asyncRoute(async (_req, res) =>
     failed: report.failed?.length || 0,
     trigger: "api",
   });
-  res.json({ report });
+  const verbose = req.query?.verbose === "1" || req.body?.verbose === true;
+  res.json(verbose ? { report } : compactSendReport(report));
 }));
 
 /** External schedulers (GitHub Actions / cron-job.org) can stamp health without a full job. */
@@ -244,7 +283,8 @@ router.post("/pipeline/gather", requireCronSecret, asyncRoute(async (req, res) =
     failed: report.failed?.length || 0,
     trigger: "api",
   });
-  res.json({ report });
+  const verbose = req.query?.verbose === "1" || req.body?.verbose === true;
+  res.json(verbose ? { report } : compactGatherReport(report));
 }));
 
 router.post("/pipeline/import", asyncRoute(async (req, res) => {
