@@ -3,7 +3,7 @@ import { config } from "./config.js";
 import { hasUsableContact, isDeliverableEmail, normalizePhone } from "./emailUtils.js";
 import { logError } from "./errors.js";
 import { fenceLabels, pickFences } from "./geo.js";
-import { geminiJson, hasLiveGemini, geminiAvailable } from "./gemini.js";
+import { geminiJson, geminiAvailable } from "./gemini.js";
 import { hasLiveOpenAI } from "./openaiLive.js";
 import { RESEARCH_PROMPT } from "./researchPrompt.js";
 
