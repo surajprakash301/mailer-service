@@ -135,8 +135,14 @@ function matchesSearch(lead, q) {
     lead.company,
     lead.contactName,
     lead.email,
+    lead.phone,
+    lead.title,
     lead.industry,
     lead.locationHint,
+    lead.website,
+    lead.nearestScreen,
+    lead.buySignals,
+    lead.notes,
     lead.subject,
     lead.status,
   ]
@@ -207,7 +213,80 @@ function renderStats(stats, health) {
   renderCronBar(health);
 }
 
+function formatPhone(phone) {
+  const raw = String(phone || "").trim();
+  if (!raw) return "";
+  return raw.startsWith("+") || raw.startsWith("0") ? raw : `+${raw}`;
+}
+
+function whatsappLabel(wa) {
+  if (!wa || typeof wa !== "object") return "";
+  if (wa.status === "sent") return "WhatsApp sent";
+  if (wa.status === "mock_sent") return "WhatsApp dry-run";
+  if (wa.status === "skipped") return "WhatsApp skipped";
+  if (wa.onWhatsApp) return "On WhatsApp";
+  if (wa.canMessage) return "WhatsApp ok";
+  return "";
+}
+
+function leadDetailsMarkup(lead) {
+  const phone = formatPhone(lead.phone);
+  const wa = whatsappLabel(lead.whatsapp);
+  const sources = Array.isArray(lead.sources) ? lead.sources.filter(Boolean) : [];
+  const rows = [
+    ["Contact", lead.contactName],
+    ["Title", lead.title],
+    ["Email", lead.email],
+    ["Phone", phone],
+    ["Website", lead.website],
+    ["Industry", lead.industry],
+    ["Location", lead.locationHint],
+    ["Nearest screen", lead.nearestScreen],
+    ["Priority", lead.priority],
+    ["Confidence", lead.confidence == null || lead.confidence === "" ? "" : String(lead.confidence)],
+    ["Buy signals", lead.buySignals],
+    ["Notes", lead.notes],
+    ["Query wave", lead.queryWave],
+    ["Research query", lead.researchQuery],
+    ["Email source", lead.emailSource],
+    ["Operator", lead.operator],
+    ["Network", lead.network],
+    ["Word count", lead.wordCount ? String(lead.wordCount) : ""],
+    ["Last error", lead.lastError],
+    ["WhatsApp", wa || (lead.whatsapp?.e164 ? lead.whatsapp.e164 : "")],
+  ].filter(([, value]) => value);
+
+  const rowHtml = rows
+    .map(([label, value]) => {
+      let display = escapeHtml(value);
+      if (label === "Phone" && phone) {
+        display = `<a href="tel:${escapeHtml(phone)}" data-act="external">${escapeHtml(phone)}</a>`;
+      } else if (label === "Email" && lead.email) {
+        display = `<a href="mailto:${escapeHtml(lead.email)}" data-act="external">${escapeHtml(lead.email)}</a>`;
+      } else if (label === "Website" && lead.website) {
+        const href = /^https?:\/\//i.test(lead.website) ? lead.website : `https://${lead.website}`;
+        display = `<a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer" data-act="external">${escapeHtml(lead.website)}</a>`;
+      }
+      return `<div class="detail-row"><span>${escapeHtml(label)}</span><strong>${display}</strong></div>`;
+    })
+    .join("");
+
+  const sourceHtml = sources.length
+    ? `<div class="detail-row detail-sources"><span>Sources</span><strong>${sources
+        .map((s) => {
+          const href = /^https?:\/\//i.test(s) ? s : "";
+          return href
+            ? `<a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer" data-act="external">${escapeHtml(s)}</a>`
+            : escapeHtml(s);
+        })
+        .join("<br>")}</strong></div>`
+    : "";
+
+  return `<div class="lead-details">${rowHtml}${sourceHtml}</div>`;
+}
+
 function previewMarkup(lead) {
+  const phone = formatPhone(lead.phone);
   const followedLine = lead.followedAt || lead.generatedAt
     ? `Followed ${formatWhen(lead.followedAt || lead.generatedAt)}`
     : "";
@@ -222,6 +301,11 @@ function previewMarkup(lead) {
   const plainHidden = showPlain ? "" : " is-hidden";
   const frameHidden = showPlain ? " is-hidden" : "";
   const toggleLabel = showPlain ? "HTML view" : "Plain text";
+  const contactBits = [
+    lead.contactName || "Contact",
+    lead.email || "—",
+    phone || null,
+  ].filter(Boolean);
 
   return `
     <div class="inline-preview" data-preview-for="${escapeHtml(lead.id)}" aria-live="polite">
@@ -229,7 +313,7 @@ function previewMarkup(lead) {
         <div>
           <p class="eyebrow">${escapeHtml(meta)}</p>
           <h3>${escapeHtml(lead.company || lead.email || "Lead")}</h3>
-          <p class="preview-to">${escapeHtml(lead.contactName || "Contact")} · ${escapeHtml(lead.email || "—")}</p>
+          <p class="preview-to">${escapeHtml(contactBits.join(" · "))}</p>
         </div>
         <div class="preview-actions">
           <button type="button" class="ghost" data-act="open-html"${lead.body ? "" : " disabled"}>Open HTML</button>
@@ -237,6 +321,7 @@ function previewMarkup(lead) {
           <button type="button" class="ghost" data-act="close-preview">Close</button>
         </div>
       </div>
+      ${leadDetailsMarkup(lead)}
       <p class="subject-line"><span>Subject</span> <strong>${escapeHtml(lead.subject || "(no subject yet)")}</strong></p>
       <div class="frame-wrap">
         <iframe class="email-frame${frameHidden}" title="Email HTML preview" sandbox="allow-same-origin allow-popups"></iframe>
@@ -283,6 +368,8 @@ function renderList() {
       const added = formatWhen(lead.createdAt || lead.updatedAt);
       const followed = formatWhen(lead.followedAt || lead.generatedAt);
       const sent = formatWhen(lead.sentAt);
+      const phone = formatPhone(lead.phone);
+      const wa = whatsappLabel(lead.whatsapp);
       const sourceChip = isPublic(lead)
         ? `<span class="chip public">public</span>`
         : isMock(lead)
@@ -292,6 +379,13 @@ function renderList() {
       const selected = lead.id === selectedId;
       const label = statusLabel(lead);
       const klass = statusClass(lead);
+      const titleBit = lead.title ? ` · ${escapeHtml(lead.title)}` : "";
+      const metaBits = [
+        lead.industry || null,
+        lead.locationHint || null,
+        lead.nearestScreen ? `Screen: ${lead.nearestScreen}` : null,
+        lead.priority || null,
+      ].filter(Boolean);
       return `
         <article class="lead-block${selected ? " is-open" : ""}" data-lead-id="${escapeHtml(lead.id)}">
           <button type="button" class="lead${selected ? " is-selected" : ""}" data-id="${escapeHtml(lead.id)}" aria-expanded="${selected ? "true" : "false"}">
@@ -299,11 +393,20 @@ function renderList() {
               <div class="lead-company">${escapeHtml(lead.company || lead.email || "Untitled")}</div>
               <span class="badge ${escapeHtml(klass)}">${escapeHtml(label)}</span>
             </div>
-            <div class="lead-sub">${escapeHtml(lead.contactName || "—")} · ${escapeHtml(lead.email || "no email")}</div>
-            <div class="lead-sub">${escapeHtml(lead.industry || "—")}${lead.locationHint ? ` · ${escapeHtml(lead.locationHint)}` : ""}</div>
+            <div class="lead-sub">${escapeHtml(lead.contactName || "—")}${titleBit}</div>
+            <div class="lead-sub lead-contacts">
+              <span>${escapeHtml(lead.email || "no email")}</span>
+              <span class="${phone ? "has-phone" : "no-phone"}">${phone ? escapeHtml(phone) : "no phone"}</span>
+              ${lead.website ? `<span class="lead-site">${escapeHtml(lead.website.replace(/^https?:\/\//i, ""))}</span>` : ""}
+            </div>
+            ${metaBits.length ? `<div class="lead-sub">${escapeHtml(metaBits.join(" · "))}</div>` : ""}
+            ${lead.buySignals ? `<div class="lead-sub lead-signals">${escapeHtml(lead.buySignals)}</div>` : ""}
             <div class="chips">
               ${sourceChip}
               ${drafted}
+              ${phone ? `<span class="chip phone">Phone</span>` : ""}
+              ${wa ? `<span class="chip public">${escapeHtml(wa)}</span>` : ""}
+              ${lead.wordCount ? `<span class="chip">${escapeHtml(String(lead.wordCount))} words</span>` : ""}
               ${added ? `<span class="chip">Added ${escapeHtml(added)} IST</span>` : ""}
               ${isToBeSent(lead) && followed ? `<span class="chip">Followed ${escapeHtml(followed)} IST</span>` : ""}
               ${sent ? `<span class="chip public">Sent ${escapeHtml(sent)} IST</span>` : ""}
@@ -382,6 +485,10 @@ leadsEl.addEventListener("click", (event) => {
   const actionBtn = event.target.closest("[data-act]");
   if (actionBtn) {
     const act = actionBtn.dataset.act;
+    if (act === "external") {
+      event.stopPropagation();
+      return;
+    }
     if (act === "open-html") {
       if (emailUrl) window.open(emailUrl, "_blank", "noopener,noreferrer");
       return;

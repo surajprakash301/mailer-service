@@ -355,10 +355,76 @@ h1 {
   font-size: 0.95rem;
 }
 
-.lead-sub {
+.lead-contacts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+}
+
+.lead-contacts .has-phone {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.lead-contacts .no-phone {
+  opacity: 0.7;
+}
+
+.lead-site {
+  word-break: break-all;
+}
+
+.lead-signals {
+  font-style: italic;
+}
+
+.chip.phone {
+  color: #0f766e;
+  border-color: rgba(15, 118, 110, 0.35);
+}
+
+.lead-details {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px 16px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+  background: #f8fafc;
+}
+
+.detail-row {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.detail-row span {
+  font-size: 0.68rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-weight: 700;
   color: var(--muted);
-  font-size: 0.82rem;
-  line-height: 1.35;
+}
+
+.detail-row strong {
+  font-weight: 600;
+  font-size: 0.88rem;
+  color: var(--ink);
+  word-break: break-word;
+}
+
+.detail-row a {
+  color: var(--coral);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.detail-row a:hover {
+  text-decoration: underline;
+}
+
+.detail-sources {
+  grid-column: 1 / -1;
 }
 
 .badge {
