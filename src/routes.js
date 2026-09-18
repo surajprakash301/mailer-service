@@ -221,16 +221,42 @@ router.post("/mail/send-live", requireCronSecret, asyncRoute(async (req, res) =>
 }));
 
 router.post("/campaigns/run", requireCronSecret, asyncRoute(async (req, res) => {
-  const report = await runDailyCampaign();
-  await recordCronRun("send", {
-    dryRun: report.dryRun,
-    sent: report.sent,
-    generated: report.generated,
-    skipped: report.skipped,
-    failed: report.failed?.length || 0,
-    trigger: "api",
-  });
+  const opts = {};
+  const sync = req.query?.sync === "1" || req.body?.sync === true;
   const verbose = req.query?.verbose === "1" || req.body?.verbose === true;
+
+  const run = async () => {
+    const report = await runDailyCampaign();
+    await recordCronRun("send", {
+      dryRun: report.dryRun,
+      sent: report.sent,
+      generated: report.generated,
+      skipped: report.skipped,
+      reEngaged: report.reEngaged || 0,
+      failed: report.failed?.length || 0,
+      trigger: sync ? "api-sync" : "api-async",
+    });
+    return report;
+  };
+
+  // cron-job.org free timeout is often 30s — respond fast, finish in background
+  if (!sync) {
+    res.status(202).json({
+      ok: true,
+      job: "send",
+      accepted: true,
+      note: "Send running in background. Check /api/health lastCronRuns.send shortly.",
+    });
+    setImmediate(() => {
+      run().catch(async (err) => {
+        logError("campaigns.run.async", err);
+        await recordCronRun("send", { error: err.message, trigger: "api-async" }).catch(() => undefined);
+      });
+    });
+    return;
+  }
+
+  const report = await run();
   res.json(verbose ? { report } : compactSendReport(report));
 }));
 
@@ -274,22 +300,60 @@ router.post("/pipeline/discover", asyncRoute(async (req, res) => {
 }));
 
 router.post("/pipeline/gather", requireCronSecret, asyncRoute(async (req, res) => {
-  const report = await runMorningGather({
-    industryLimit: req.body?.industryLimit ?? config.gatherIndustries,
-    companiesPerIndustry: req.body?.companiesPerIndustry ?? config.gatherCompaniesPerIndustry,
-    generate: req.body?.generate !== false,
-  });
-  await recordCronRun("gather", {
-    industries: report.industries?.map((i) => i.industry),
-    added: report.added,
-    refreshed: report.refreshed || 0,
-    requeued: report.requeued || 0,
-    drafted: report.drafted,
-    skipped: report.skipped,
-    failed: report.failed?.length || 0,
-    trigger: "api",
-  });
+  const industryLimit = req.body?.industryLimit ?? config.gatherIndustries;
+  const companiesPerIndustry = req.body?.companiesPerIndustry ?? config.gatherCompaniesPerIndustry;
+  const generate = req.body?.generate !== false;
+  const sync = req.query?.sync === "1" || req.body?.sync === true;
   const verbose = req.query?.verbose === "1" || req.body?.verbose === true;
+
+  const run = async () => {
+    const report = await runMorningGather({
+      industryLimit,
+      companiesPerIndustry,
+      generate,
+    });
+    await recordCronRun("gather", {
+      industries: report.industries?.map((i) => i.industry),
+      added: report.added,
+      refreshed: report.refreshed || 0,
+      requeued: report.requeued || 0,
+      drafted: report.drafted,
+      skipped: report.skipped,
+      failed: report.failed?.length || 0,
+      note: report.note || "",
+      trigger: sync ? "api-sync" : "api-async",
+    });
+    return report;
+  };
+
+  // Default async: gather (5+ Gemini researches) often exceeds cron-job.org's 30s timeout
+  if (!sync) {
+    await recordCronRun("gather", {
+      status: "started",
+      trigger: "api-async",
+      note: "accepted — running in background",
+    });
+    res.status(202).json({
+      ok: true,
+      job: "gather",
+      accepted: true,
+      minLeads: config.gatherMinLeads,
+      note: "Gather running in background. Check /api/health lastCronRuns.gather in 1–3 minutes.",
+    });
+    setImmediate(() => {
+      run().catch(async (err) => {
+        logError("pipeline.gather.async", err);
+        await recordCronRun("gather", {
+          error: err.message,
+          status: "failed",
+          trigger: "api-async",
+        }).catch(() => undefined);
+      });
+    });
+    return;
+  }
+
+  const report = await run();
   res.json(verbose ? { report } : compactGatherReport(report));
 }));
 
