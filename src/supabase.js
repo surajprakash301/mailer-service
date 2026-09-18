@@ -1,11 +1,11 @@
 import { createClient } from "@supabase/supabase-js";
+import ws from "ws";
 import { config } from "./config.js";
 
 /**
  * Server-side Supabase client for the Express mailer.
  * Prefer SUPABASE_* vars; NEXT_PUBLIC_* accepted for dashboard copy-paste.
- * Realtime is unused — keep the client REST-only so Node 20 (Render) does not
- * require a native WebSocket / `ws` polyfill.
+ * Pass `ws` so realtime bootstrap does not crash on hosts without native WebSocket.
  */
 export function createSupabaseClient() {
   const url = config.supabaseUrl;
@@ -23,9 +23,8 @@ export function createSupabaseClient() {
       autoRefreshToken: false,
       detectSessionInUrl: false,
     },
-    // Prevent realtime channel bootstrap (throws on Node without WebSocket)
     realtime: {
-      params: { eventsPerSecond: 0 },
+      transport: ws,
     },
     global: {
       headers: { "X-Client-Info": "loky-mailer" },
