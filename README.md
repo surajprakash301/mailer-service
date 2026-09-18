@@ -105,13 +105,14 @@ You can still use [cron-job.org](https://cron-job.org) instead of (or in additio
 | Every day **07:00** | `POST` | `https://YOUR-APP.onrender.com/api/pipeline/gather` | `x-cron-secret: YOUR_CRON_SECRET` |
 | Every day **08:45** | `POST` | `https://YOUR-APP.onrender.com/api/campaigns/run` | `x-cron-secret: YOUR_CRON_SECRET` |
 
-**cron-job.org setup (fixes 401):**
+**cron-job.org setup (fixes 401 + timeout):**
 1. Request method: **POST**
 2. Enable **Custom headers** → add:
    - `x-cron-secret` = same value as Render env `CRON_SECRET`
    - `Content-Type` = `application/json`
 3. Request body: `{}`
-4. Schedule gather **before** send (07:00 gather, 08:45 send), timezone Asia/Kolkata
+4. **Advanced → Timeout: at least 60s** (app now returns **202 Accepted** fast; gather finishes in background)
+5. Schedule gather **before** send (07:00 gather, 08:45 send), timezone Asia/Kolkata
 
 Alternate auth if custom headers are awkward: `Authorization: Bearer YOUR_CRON_SECRET`
 
