@@ -191,6 +191,17 @@ router.post("/campaigns/run", requireCronSecret, asyncRoute(async (_req, res) =>
   res.json({ report });
 }));
 
+/** External schedulers (GitHub Actions / cron-job.org) can stamp health without a full job. */
+router.post("/cron/record", requireCronSecret, asyncRoute(async (req, res) => {
+  const job = String(req.body?.job || "").trim();
+  if (job !== "gather" && job !== "send") {
+    return res.status(400).json({ error: "job must be gather or send" });
+  }
+  const summary = req.body?.summary && typeof req.body.summary === "object" ? req.body.summary : {};
+  const next = await recordCronRun(job, { ...summary, trigger: summary.trigger || "api-record" });
+  res.json({ ok: true, lastCronRuns: next });
+}));
+
 router.post("/research", asyncRoute(async (req, res) => {
   const research = await researchProspect({
     query: req.body?.query,

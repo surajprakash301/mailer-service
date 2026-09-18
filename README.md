@@ -65,12 +65,45 @@ curl -s -X POST http://localhost:8787/api/campaigns/run \
 
 Skim leads between the two jobs via the UI or `data/leads.json`. When `CRON_SECRET` is set, ops routes require header `x-cron-secret`.
 
-## Free deploy (Render + external cron)
+## Free deploy (Render + GitHub Actions cron)
 
-Free web hosts **sleep when idle**, so in-process `node-cron` will miss 7:00 / 8:45. Use this pattern instead:
+Free web hosts **sleep when idle**, so in-process `node-cron` will miss 7:00 / 8:45. This repo uses:
 
-1. Deploy the always-reachable HTTP API on **[Render](https://render.com)** (free)
-2. Trigger gather/send from a free external cron ([cron-job.org](https://cron-job.org)) that wakes the app
+1. `DISABLE_INTERNAL_CRON=true` on Render
+2. **GitHub Actions** as the external scheduler:
+   - `Gather leads to Supabase` — 07:00 IST (`30 1 * * *` UTC) → `scripts/main.py`
+   - `Send campaign via Render` — 08:45 IST (`15 3 * * *` UTC) → `POST /api/campaigns/run`
+3. Durable `lastCronRuns` in Supabase (meta row or `cron_runs` table) so `/api/health` survives sleep
+
+### Required GitHub repository secrets
+
+| Secret | Value |
+| --- | --- |
+| `GEMINI_API_KEY` | Google AI key |
+| `SUPABASE_URL` | `https://YOUR_PROJECT.supabase.co` |
+| `SUPABASE_SERVICE_ROLE_KEY` | service role key |
+| `CRON_SECRET` | same as Render `CRON_SECRET` |
+| `APP_URL` | optional; defaults to `https://mailer-service-dhq1.onrender.com` |
+
+Optional: run `scripts/supabase-cron-runs-migrate.sql` once for a dedicated `cron_runs` table (otherwise a `__loky_cron_meta__` row is used).
+
+Manual catch-up:
+
+```bash
+# Gather (Python locally or Actions → Run workflow)
+# Send:
+curl -s -X POST https://mailer-service-dhq1.onrender.com/api/campaigns/run \
+  -H 'Content-Type: application/json' \
+  -H "x-cron-secret: $CRON_SECRET" \
+  -d '{}'
+```
+
+You can still use [cron-job.org](https://cron-job.org) instead of (or in addition to) Actions:
+
+| When | Method | URL | Header |
+| --- | --- | --- | --- |
+| Every day **07:00** | `POST` | `https://YOUR-APP.onrender.com/api/pipeline/gather` | `x-cron-secret: YOUR_CRON_SECRET` |
+| Every day **08:45** | `POST` | `https://YOUR-APP.onrender.com/api/campaigns/run` | `x-cron-secret: YOUR_CRON_SECRET` |
 
 ### 1. Render
 

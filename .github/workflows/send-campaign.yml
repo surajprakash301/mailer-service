@@ -1,9 +1,9 @@
-# Send cron: wake Render and dispatch ready/researched leads (09:45 IST = 04:15 UTC)
+# Send cron: wake Render and dispatch ready leads (08:45 IST = 03:15 UTC)
 name: Send campaign via Render
 
 on:
   schedule:
-    - cron: "15 4 * * *"
+    - cron: "15 3 * * *"
   workflow_dispatch:
 
 jobs:
@@ -17,15 +17,26 @@ jobs:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
           set -euo pipefail
-          if [ -z "${APP_URL:-}" ]; then
-            echo "Set repository secret APP_URL (e.g. https://loky-mailer.onrender.com)"
+          APP_URL="${APP_URL:-https://mailer-service-dhq1.onrender.com}"
+          if [ -z "${CRON_SECRET:-}" ]; then
+            echo "::error::Set repository secret CRON_SECRET (same value as Render CRON_SECRET)"
             exit 1
           fi
-          # Wake cold instance
-          curl -fsS -m 90 "${APP_URL}/api/health" >/dev/null || true
-          sleep 8
-          # Allow time to draft+send up to ~25 leads
+          echo "Waking ${APP_URL} ..."
+          for i in 1 2 3 4 5; do
+            if curl -fsS -m 90 "${APP_URL}/api/health" >/tmp/health.json; then
+              echo "Health OK (attempt $i)"
+              cat /tmp/health.json
+              break
+            fi
+            echo "Wake attempt $i failed; sleeping..."
+            sleep 15
+          done
+          sleep 5
+          echo "POST /api/campaigns/run"
           curl -fsS -m 600 -X POST "${APP_URL}/api/campaigns/run" \
             -H "Content-Type: application/json" \
             -H "x-cron-secret: ${CRON_SECRET}" \
-            -d '{}'
+            -d '{}' | tee /tmp/send-report.json
+          echo
+          echo "Send finished."

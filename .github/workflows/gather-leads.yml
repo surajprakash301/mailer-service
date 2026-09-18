@@ -1,5 +1,6 @@
 # Morning gather: Gemini research → Supabase (07:00 IST = 01:30 UTC)
-# Target: ~25 leads across ~10 industries for the morning send.
+# Then wake Render so /api/health can reflect durable lastCronRuns.
+# Target: ~25 leads across focus industries for the morning send.
 name: Gather leads to Supabase
 
 on:
@@ -33,5 +34,34 @@ jobs:
           GATHER_INDUSTRIES: "10"
           GATHER_COMPANIES_PER_INDUSTRY: "3"
           GATHER_MAX_LEADS: "25"
-          # Categories locked in data/durga-puja-industries.json (Jewellery…Agencies)
-        run: python scripts/main.py
+        run: |
+          set -euo pipefail
+          if [ -z "${GEMINI_API_KEY:-}" ]; then
+            echo "::error::Set repository secret GEMINI_API_KEY"
+            exit 1
+          fi
+          if [ -z "${SUPABASE_URL:-}" ] || [ -z "${SUPABASE_SERVICE_ROLE_KEY:-}" ]; then
+            echo "::error::Set repository secrets SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY"
+            exit 1
+          fi
+          python scripts/main.py
+
+      - name: Fallback gather via Render API
+        if: failure()
+        env:
+          APP_URL: ${{ secrets.APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -euo pipefail
+          APP_URL="${APP_URL:-https://mailer-service-dhq1.onrender.com}"
+          if [ -z "${CRON_SECRET:-}" ]; then
+            echo "::error::Python gather failed and CRON_SECRET is missing for Render fallback"
+            exit 1
+          fi
+          echo "Python gather failed — falling back to Render /api/pipeline/gather"
+          curl -fsS -m 90 "${APP_URL}/api/health" >/dev/null || true
+          sleep 8
+          curl -fsS -m 600 -X POST "${APP_URL}/api/pipeline/gather" \
+            -H "Content-Type: application/json" \
+            -H "x-cron-secret: ${CRON_SECRET}" \
+            -d '{"industryLimit":3,"companiesPerIndustry":2}'

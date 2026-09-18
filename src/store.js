@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { v4 as uuid } from "uuid";
 import { config } from "./config.js";
 import { logError } from "./errors.js";
-import { isSupabaseConfigured } from "./supabase.js";
+import { getSupabase, isSupabaseConfigured } from "./supabase.js";
 import * as sb from "./storeSupabase.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -79,33 +79,161 @@ function nowIso() {
   return new Date().toISOString();
 }
 
-export async function readCronRuns() {
+function emptyCronRuns() {
+  return { gather: null, send: null };
+}
+
+function cronTable() {
+  return process.env.SUPABASE_CRON_TABLE?.trim() || "cron_runs";
+}
+
+const CRON_META_COMPANY = "__loky_cron_meta__";
+const CRON_META_EMAIL = "cron-meta@loky.internal";
+
+function rowToCronEntry(row) {
+  if (!row) return null;
+  const payload = row.payload && typeof row.payload === "object" ? row.payload : {};
+  return {
+    at: row.at || null,
+    storage: row.storage || "",
+    ...payload,
+  };
+}
+
+async function readCronRunsFromFile() {
   try {
     const raw = await readFile(cronLogFile(), "utf8");
     return JSON.parse(raw);
   } catch (err) {
-    if (err.code === "ENOENT") return { gather: null, send: null };
-    logError("store.readCronRuns", err);
-    return { gather: null, send: null };
+    if (err.code === "ENOENT") return emptyCronRuns();
+    logError("store.readCronRuns.file", err);
+    return emptyCronRuns();
   }
 }
 
-export async function recordCronRun(job, summary = {}) {
+async function writeCronRunsFile(next) {
   const dir = resolveDataDir();
   await mkdir(dir, { recursive: true });
-  const current = await readCronRuns();
-  const next = {
-    ...current,
-    [job]: {
-      at: nowIso(),
-      storage: storageBackend(),
-      ...summary,
-    },
-  };
   const file = cronLogFile();
   const tmp = `${file}.tmp`;
   await writeFile(tmp, `${JSON.stringify(next, null, 2)}\n`);
   await rename(tmp, file);
+}
+
+async function readCronRunsFromCronTable() {
+  const { data, error } = await getSupabase().from(cronTable()).select("job,at,storage,payload");
+  if (error) throw error;
+  const out = emptyCronRuns();
+  for (const row of data || []) {
+    if (row.job === "gather" || row.job === "send") {
+      out[row.job] = rowToCronEntry(row);
+    }
+  }
+  return out;
+}
+
+async function writeCronRunToCronTable(job, entry) {
+  const { at, storage, ...payload } = entry;
+  const { error } = await getSupabase()
+    .from(cronTable())
+    .upsert({ job, at, storage, payload }, { onConflict: "job" });
+  if (error) throw error;
+}
+
+/** Fallback when cron_runs table is missing — one meta row in emailer-table. */
+async function readCronRunsFromMetaRow() {
+  const { data, error } = await getSupabase()
+    .from(config.supabaseLeadsTable)
+    .select("notes")
+    .eq("company", CRON_META_COMPANY)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data?.notes) return emptyCronRuns();
+  try {
+    const parsed = JSON.parse(data.notes);
+    return {
+      gather: parsed.gather || null,
+      send: parsed.send || null,
+    };
+  } catch {
+    return emptyCronRuns();
+  }
+}
+
+async function writeCronRunsToMetaRow(next) {
+  // emailer-table has no id column — company is the unique key
+  const payload = {
+    company: CRON_META_COMPANY,
+    contact_name: "System",
+    title: "Cron status",
+    email: CRON_META_EMAIL,
+    email_source: "system",
+    industry: "system",
+    notes: JSON.stringify(next),
+    status: "system",
+    operator: "system",
+    network: "Loky Media Patna DOOH",
+    query_wave: "cron-meta",
+    updated_at: nowIso(),
+  };
+  const { error } = await getSupabase()
+    .from(config.supabaseLeadsTable)
+    .upsert(payload, { onConflict: "company" });
+  if (error) throw error;
+}
+
+function isMissingRelationError(err) {
+  const msg = String(err?.message || err || "");
+  return /Could not find the table|schema cache|does not exist/i.test(msg);
+}
+
+/**
+ * Prefer dedicated cron_runs table; else meta row in emailer-table; else local JSON.
+ * Ephemeral Render disk alone is not durable.
+ */
+export async function readCronRuns() {
+  if (useSupabaseStore()) {
+    try {
+      return await readCronRunsFromCronTable();
+    } catch (err) {
+      if (!isMissingRelationError(err)) logError("store.readCronRuns.cron_table", err);
+      try {
+        return await readCronRunsFromMetaRow();
+      } catch (err2) {
+        logError("store.readCronRuns.meta_row", err2);
+      }
+    }
+  }
+  return readCronRunsFromFile();
+}
+
+export async function recordCronRun(job, summary = {}) {
+  const entry = {
+    at: nowIso(),
+    storage: storageBackend(),
+    ...summary,
+  };
+  const current = await readCronRuns();
+  const next = { ...current, [job]: entry };
+
+  if (useSupabaseStore()) {
+    try {
+      await writeCronRunToCronTable(job, entry);
+    } catch (err) {
+      if (!isMissingRelationError(err)) logError("store.recordCronRun.cron_table", err);
+      try {
+        await writeCronRunsToMetaRow(next);
+      } catch (err2) {
+        logError("store.recordCronRun.meta_row", err2);
+      }
+    }
+  }
+
+  try {
+    await writeCronRunsFile(next);
+  } catch (err) {
+    logError("store.recordCronRun.file", err);
+  }
   return next;
 }
 

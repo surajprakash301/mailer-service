@@ -134,7 +134,9 @@ export async function listLeads() {
     ascending: false,
   });
   if (error) throwSb("supabase.listLeads", error);
-  return (data || []).map(rowToLead);
+  return (data || [])
+    .map(rowToLead)
+    .filter((lead) => lead && lead.company !== "__loky_cron_meta__" && lead.status !== "system");
 }
 
 export async function getLead(id) {

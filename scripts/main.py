@@ -397,7 +397,7 @@ def _generate_lead(prompt: str) -> dict:
     return _generate_json(prompt, LeadRecord)
 
 
-def process_lead_queries(queries: list[dict]) -> None:
+def process_lead_queries(queries: list[dict]) -> int:
     records: list[dict] = []
 
     for item in queries:
@@ -426,10 +426,11 @@ def process_lead_queries(queries: list[dict]) -> None:
 
     if not records:
         print("No records to push.")
-        return
+        return 0
 
     supabase.table(TABLE_NAME).upsert(records, on_conflict="company").execute()
     print(f"Pushed {len(records)} records into {TABLE_NAME}.")
+    return len(records)
 
 
 def build_daily_target_list() -> list[dict]:
@@ -470,8 +471,58 @@ def build_daily_target_list() -> list[dict]:
     return fresh[:max_leads]
 
 
+def record_cron_run(job: str, summary: dict) -> None:
+    """Persist gather/send status so Render /api/health lastCronRuns is durable."""
+    stamp = datetime.now(ZoneInfo("UTC")).isoformat()
+    entry = {"at": stamp, "storage": f"supabase:{TABLE_NAME}", **summary}
+    # Preferred: dedicated cron_runs table (scripts/supabase-cron-runs-migrate.sql)
+    try:
+        payload = {k: v for k, v in entry.items() if k not in ("at", "storage")}
+        supabase.table("cron_runs").upsert(
+            {"job": job, "at": stamp, "storage": entry["storage"], "payload": payload},
+            on_conflict="job",
+        ).execute()
+        print(f"Recorded cron_runs.{job}")
+        return
+    except Exception as exc:
+        print(f"cron_runs table unavailable ({exc}); using meta row fallback", file=sys.stderr)
+
+    meta_company = "__loky_cron_meta__"
+    current = {"gather": None, "send": None}
+    try:
+        existing = (
+            supabase.table(TABLE_NAME)
+            .select("id,notes")
+            .eq("company", meta_company)
+            .limit(1)
+            .execute()
+        )
+        rows = existing.data or []
+        if rows and rows[0].get("notes"):
+            current = json.loads(rows[0]["notes"])
+    except Exception:
+        pass
+    current[job] = entry
+    row = {
+        "company": meta_company,
+        "contact_name": "System",
+        "title": "Cron status",
+        "email": "cron-meta@loky.internal",
+        "email_source": "system",
+        "industry": "system",
+        "notes": json.dumps(current),
+        "status": "system",
+        "operator": "system",
+        "network": "Loky Media Patna DOOH",
+        "query_wave": "cron-meta",
+    }
+    supabase.table(TABLE_NAME).upsert(row, on_conflict="company").execute()
+    print(f"Recorded cron meta row for {job}")
+
+
 if __name__ == "__main__":
     # Optional override: TARGETS_JSON='[{"company":"...","nearest_screen":"fraser_road"}]'
+    started = datetime.now(ZoneInfo("Asia/Kolkata")).isoformat()
     override = (os.environ.get("TARGETS_JSON") or "").strip()
     if override:
         target_list = json.loads(override)
@@ -481,6 +532,28 @@ if __name__ == "__main__":
 
     if not target_list:
         print("No targets to research.")
+        record_cron_run(
+            "gather",
+            {"added": 0, "drafted": 0, "skipped": 0, "failed": 0, "trigger": "github-actions", "note": "no targets", "started": started},
+        )
         raise SystemExit(0)
 
-    process_lead_queries(target_list)
+    try:
+        added = process_lead_queries(target_list)
+        record_cron_run(
+            "gather",
+            {
+                "added": added or 0,
+                "drafted": added or 0,
+                "skipped": 0,
+                "failed": 0,
+                "trigger": "github-actions",
+                "started": started,
+            },
+        )
+    except Exception as exc:
+        record_cron_run(
+            "gather",
+            {"added": 0, "failed": 1, "error": str(exc), "trigger": "github-actions", "started": started},
+        )
+        raise
