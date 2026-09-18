@@ -1,6 +1,8 @@
 import OpenAI from "openai";
 import { config } from "./config.js";
+import { hasUsableContact, isDeliverableEmail, normalizePhone } from "./emailUtils.js";
 import { logError } from "./errors.js";
+import { fenceLabels, pickFences } from "./geo.js";
 import { geminiJson, hasLiveGemini, geminiAvailable } from "./gemini.js";
 import { hasLiveOpenAI } from "./openaiLive.js";
 import { RESEARCH_PROMPT } from "./researchPrompt.js";
@@ -125,15 +127,6 @@ const CATALOG = [
   },
 ];
 
-function slugEmail(company) {
-  const slug = String(company || "prospect")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "")
-    .slice(0, 40);
-  return `${slug || "prospect"}@loky-mock.test`;
-}
-
 export function extractEmails(text) {
   const matches = String(text || "").match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi) || [];
   return [...new Set(matches.map((e) => e.toLowerCase()))].filter((email) => {
@@ -144,6 +137,18 @@ export function extractEmails(text) {
     if (/^(noreply|no-reply|donotreply)@/i.test(email)) return false;
     return true;
   });
+}
+
+export function extractPhones(text) {
+  const raw = String(text || "");
+  const matches =
+    raw.match(/(?:\+?91[\s-]*)?(?:0)?[6-9]\d{9}\b|\b0\d{2,4}[\s-]?\d{6,8}\b/g) || [];
+  const out = [];
+  for (const match of matches) {
+    const normalized = normalizePhone(match);
+    if (normalized && !out.includes(normalized)) out.push(normalized);
+  }
+  return out;
 }
 
 export function stripHtml(html) {
@@ -204,13 +209,83 @@ export async function searchWeb(query) {
   const results = [];
   const re = /<a[^>]*class="result__a"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi;
   let match;
-  while ((match = re.exec(html)) && results.length < 8) {
+  while ((match = re.exec(html)) && results.length < 12) {
     const href = unwrapDuckHref(match[1].replaceAll("&amp;", "&"));
     const title = stripHtml(match[2]);
     if (!href.startsWith("http")) continue;
     results.push({ title, url: href });
   }
   return results;
+}
+
+/**
+ * Google Places Text Search biased to a corridor fence (geofenced retrieval).
+ * Soft-fails when GOOGLE_MAPS_API_KEY is unset or the API errors.
+ */
+export async function searchMapsPlaces(query, { fence = null, limit = 8 } = {}) {
+  const key = config.googleMapsApiKey;
+  if (!key) return [];
+  const params = new URLSearchParams({
+    query: `${query} Patna`,
+    key,
+  });
+  if (fence?.lat != null && fence?.lng != null) {
+    params.set("location", `${fence.lat},${fence.lng}`);
+    params.set("radius", String(fence.radiusM || 3000));
+  }
+  try {
+    const url = `https://maps.googleapis.com/maps/api/place/textsearch/json?${params}`;
+    const raw = await fetchUrl(url, { asHtml: false, timeoutMs: 10_000 });
+    const parsed = JSON.parse(raw);
+    if (parsed.status && parsed.status !== "OK" && parsed.status !== "ZERO_RESULTS") {
+      console.warn(`[warn] maps.places ${parsed.status}: ${parsed.error_message || ""}`);
+      return [];
+    }
+    const results = Array.isArray(parsed.results) ? parsed.results : [];
+    return results.slice(0, limit).map((row) => ({
+      company: String(row.name || "").trim(),
+      address: String(row.formatted_address || "").trim(),
+      placeId: String(row.place_id || "").trim(),
+      rating: row.rating ?? null,
+      locationHint: fence?.label || row.formatted_address || "Patna",
+      nearestScreen: fence?.id || "",
+      website: "",
+      phone: "",
+      query: `${row.name || query} Patna contact email phone`,
+      source: "google_maps",
+    }));
+  } catch (err) {
+    logFetchSoft("research.searchMapsPlaces", err);
+    return [];
+  }
+}
+
+async function mapsPlaceDetails(placeId) {
+  const key = config.googleMapsApiKey;
+  if (!key || !placeId) return null;
+  try {
+    const params = new URLSearchParams({
+      place_id: placeId,
+      fields: "name,formatted_phone_number,international_phone_number,website,formatted_address,url",
+      key,
+    });
+    const raw = await fetchUrl(
+      `https://maps.googleapis.com/maps/api/place/details/json?${params}`,
+      { asHtml: false, timeoutMs: 8_000 },
+    );
+    const parsed = JSON.parse(raw);
+    const r = parsed?.result;
+    if (!r) return null;
+    return {
+      phone: normalizePhone(r.international_phone_number || r.formatted_phone_number || ""),
+      website: String(r.website || "").trim(),
+      address: String(r.formatted_address || "").trim(),
+      mapsUrl: String(r.url || "").trim(),
+    };
+  } catch (err) {
+    logFetchSoft("research.mapsPlaceDetails", err);
+    return null;
+  }
 }
 
 function catalogHits(query) {
@@ -253,6 +328,7 @@ async function collectPages(query, website) {
   const pages = [];
   const sources = [];
   const targets = [];
+  const fences = pickFences(3);
 
   if (website && looksLikeUrl(website)) {
     targets.push(website.startsWith("http") ? website : `https://${website}`);
@@ -261,53 +337,122 @@ async function collectPages(query, website) {
     targets.push(query.startsWith("http") ? query : `https://${query}`);
   }
 
-  // Prefer catalog site first (reliable) before flaky SERP pages
   for (const hit of catalogHits(query)) {
-    if (hit.website && looksLikeUrl(hit.website) && targets.length < 2) {
+    if (hit.website && looksLikeUrl(hit.website) && targets.length < 3) {
       targets.push(hit.website.startsWith("http") ? hit.website : `https://${hit.website}`);
     }
   }
 
-  try {
-    const hits = await searchWeb(`${query} Patna official website contact`);
-    sources.push(...hits);
-    for (const hit of hits) {
-      try {
-        if (SKIP_HOST.test(new URL(hit.url).hostname)) continue;
-      } catch {
-        continue;
+  const searchQueries = [
+    `${query} Patna official website contact email phone`,
+    `${query} ${fences[0]?.label || "Fraser Road"} Patna phone email`,
+    `${query} Patna near ${fences[1]?.label || "Boring Road"} contact`,
+  ];
+
+  for (const sq of searchQueries) {
+    try {
+      const hits = await searchWeb(sq);
+      sources.push(...hits);
+      for (const hit of hits) {
+        try {
+          if (SKIP_HOST.test(new URL(hit.url).hostname)) continue;
+        } catch {
+          continue;
+        }
+        if (targets.length >= 5) break;
+        targets.push(hit.url);
       }
-      if (targets.length >= 2) break;
-      targets.push(hit.url);
+    } catch (err) {
+      logFetchSoft("research.searchWeb", err);
     }
-  } catch (err) {
-    logFetchSoft("research.searchWeb", err);
+    if (targets.length >= 5) break;
   }
 
-  const unique = [...new Set(targets)].slice(0, 2);
+  // Geofenced Maps discovery → place details for phone/website
+  const mapsNotes = [];
+  for (const fence of fences.slice(0, 2)) {
+    try {
+      const places = await searchMapsPlaces(query, { fence, limit: 4 });
+      for (const place of places) {
+        sources.push({
+          title: `${place.company} (Maps · ${fence.label})`,
+          url: place.mapsUrl || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(place.company + " Patna")}`,
+        });
+        if (place.placeId) {
+          const details = await mapsPlaceDetails(place.placeId);
+          if (details) {
+            mapsNotes.push({
+              company: place.company,
+              ...details,
+              locationHint: place.locationHint,
+              nearestScreen: place.nearestScreen,
+            });
+            if (details.website && looksLikeUrl(details.website) && targets.length < 5) {
+              targets.push(details.website);
+            }
+          }
+        }
+      }
+    } catch (err) {
+      logFetchSoft("research.mapsCollect", err);
+    }
+  }
+
+  const unique = [...new Set(targets)].slice(0, 5);
   await Promise.all(
     unique.map(async (url) => {
       try {
         const html = await fetchUrl(url);
-        pages.push({ url, text: stripHtml(html), emails: extractEmails(html) });
+        pages.push({
+          url,
+          text: stripHtml(html),
+          emails: extractEmails(html),
+          phones: extractPhones(html),
+        });
       } catch (err) {
         logFetchSoft(`research.fetch ${url}`, err);
       }
     }),
   );
-  return { pages, sources };
+  return { pages, sources, mapsNotes, fences };
 }
 
-async function llmExtract(query, pages, snippets) {
+async function llmExtract(query, pages, snippets, mapsNotes = [], fences = []) {
   if (!geminiAvailable() && !hasLiveOpenAI()) return null;
   const packed = pages
-    .map((p) => `URL: ${p.url}\nEmails seen: ${p.emails.join(", ") || "none"}\n${p.text.slice(0, 4000)}`)
+    .map(
+      (p) =>
+        `URL: ${p.url}\nEmails seen: ${p.emails.join(", ") || "none"}\nPhones seen: ${(p.phones || []).join(", ") || "none"}\n${p.text.slice(0, 3500)}`,
+    )
     .join("\n\n---\n\n");
   const catalogHint = catalogHits(query)
     .slice(0, 2)
     .map((c) => `${c.company} · ${c.locationHint} · ${c.notes}`)
     .join("\n");
-  const user = `Operator query: ${query}\n\nCatalog hints (use if page text is empty):\n${catalogHint || "(none)"}\n\nSearch titles:\n${snippets || "(none)"}\n\nPage text:\n${packed || "(none — invent nothing; use catalog hints only)"}`;
+  const mapsBlock = (mapsNotes || [])
+    .slice(0, 8)
+    .map(
+      (m) =>
+        `${m.company} · phone:${m.phone || "none"} · web:${m.website || "none"} · ${m.locationHint || ""} · screen:${m.nearestScreen || ""}`,
+    )
+    .join("\n");
+  const fenceBlock = (fences || []).map((f) => `${f.id}: ${f.label}`).join("\n") || fenceLabels();
+  const user = `Operator query: ${query}
+
+Geofence corridors (prefer businesses inside these):
+${fenceBlock}
+
+Google Maps / Places hits (use phone/website when present; do not invent):
+${mapsBlock || "(none — set GOOGLE_MAPS_API_KEY for Places geofencing)"}
+
+Catalog hints (use if page text is empty):
+${catalogHint || "(none)"}
+
+Search titles:
+${snippets || "(none)"}
+
+Page text:
+${packed || "(none — invent nothing; use Maps + catalog only)"}`;
 
   if (geminiAvailable()) {
     try {
@@ -360,13 +505,33 @@ function pickPublicEmail(extracted, pages, website) {
   return sameHost || ranked.find((email) => !SKIP_HOST.test(email.split("@")[1] || "")) || "";
 }
 
-function mergeLead(query, extracted, pages, catalog) {
+function pickPhone(extracted, pages, mapsNotes = []) {
+  const fromMaps = (mapsNotes || []).map((m) => normalizePhone(m.phone)).filter(Boolean);
+  const fromPages = pages.flatMap((p) => p.phones || []);
+  const fromExtracted = normalizePhone(extracted?.phone || "");
+  return fromExtracted || fromMaps[0] || fromPages[0] || "";
+}
+
+function mergeLead(query, extracted, pages, catalog, mapsNotes = []) {
   const base = catalog || {};
   const company = extracted?.company || base.company || query;
-  const website = String(extracted?.website || pages[0]?.url || base.website || "").trim();
+  const mapsHit = (mapsNotes || []).find(
+    (m) =>
+      String(m.company || "")
+        .toLowerCase()
+        .includes(String(company).toLowerCase().slice(0, 12)) ||
+      String(company)
+        .toLowerCase()
+        .includes(String(m.company || "").toLowerCase().slice(0, 12)),
+  );
+  const website = String(
+    extracted?.website || mapsHit?.website || pages[0]?.url || base.website || "",
+  ).trim();
   const publicEmail = pickPublicEmail(extracted, pages, website);
-  const email = publicEmail || slugEmail(company);
-  const emailSource = publicEmail ? "public" : "mock";
+  // Never invent mock inboxes — empty email if none found (discarded later if also no phone)
+  const email = publicEmail || "";
+  const emailSource = publicEmail ? "public" : "";
+  const phone = pickPhone(extracted, pages, mapsNotes);
 
   return {
     company: String(company).trim(),
@@ -374,15 +539,23 @@ function mergeLead(query, extracted, pages, catalog) {
     title: String(extracted?.title || base.title || "").trim(),
     industry: String(extracted?.industry || base.industry || "").trim(),
     locationHint: String(
-      extracted?.locationHint || base.locationHint || "Patna commuter corridors",
+      extracted?.locationHint ||
+        mapsHit?.locationHint ||
+        base.locationHint ||
+        "Patna commuter corridors",
     ).trim(),
+    nearestScreen: String(extracted?.nearestScreen || mapsHit?.nearestScreen || "").trim(),
     notes: String(
-      extracted?.notes || base.notes || `Researched from public sources for: ${query}`,
+      extracted?.notes || base.notes || `Researched from public + Maps sources for: ${query}`,
     ).trim(),
     website,
     email,
+    phone,
     emailSource,
-    sources: pages.map((p) => p.url),
+    sources: [
+      ...pages.map((p) => p.url),
+      ...(mapsNotes || []).map((m) => m.mapsUrl).filter(Boolean),
+    ].filter(Boolean),
   };
 }
 
@@ -392,7 +565,7 @@ export async function researchProspect({ query, website = "" } = {}) {
     throw Object.assign(new Error("Enter a company name, URL, or niche in Patna"), { status: 400 });
   }
 
-  const { pages, sources } = await collectPages(q, website);
+  const { pages, sources, mapsNotes, fences } = await collectPages(q, website);
   const hits = catalogHits(q);
   let extracted = null;
   try {
@@ -400,20 +573,23 @@ export async function researchProspect({ query, website = "" } = {}) {
       q,
       pages,
       sources.map((s) => `${s.title} — ${s.url}`).join("\n"),
+      mapsNotes,
+      fences,
     );
   } catch (err) {
     logError("research.llmExtract", err);
   }
 
-  // If model + pages both empty, still ship a catalog or query-based lead
-  const lead = mergeLead(q, extracted, pages, hits[0]);
+  const lead = mergeLead(q, extracted, pages, hits[0], mapsNotes);
   return {
     query: q,
     usedCatalog: Boolean(hits[0]) && pages.length === 0,
     usedModel: Boolean(extracted),
-    searchHits: sources.slice(0, 6),
+    usedMaps: (mapsNotes || []).length > 0,
+    searchHits: sources.slice(0, 10),
     lead,
-    summary: `${lead.company} · ${lead.emailSource} email · ${lead.locationHint}`,
+    persistable: hasUsableContact(lead),
+    summary: `${lead.company} · ${lead.emailSource || "no"} email · phone:${lead.phone || "none"} · ${lead.locationHint}`,
   };
 }
 
@@ -421,11 +597,15 @@ async function geminiDiscover(query, limit) {
   if (!geminiAvailable()) return [];
   try {
     const parsed = await geminiJson({
-      system: `You suggest real local B2B operators in Patna, Bihar for DOOH cold outreach.
-Return JSON only: {"prospects":[{"company":"","website":"","query":""}]}
-Rules: local operators only, no national-only brands without a Patna location, website may be empty, query should help find their Patna contact page.`,
-      user: `Niche: ${query}\nReturn up to ${limit} prospects.`,
-      temperature: 0.3,
+      system: `You suggest real local B2B operators in Patna, Bihar for DOOH cold outreach near Loky LED corridors (${fenceLabels()}).
+Return JSON only: {"prospects":[{"company":"","website":"","query":"","corridor":""}]}
+Rules:
+- Local operators only, geofenced to those corridors (no national HQ-only brands without a Patna store).
+- Prefer businesses likely to publish a public business email OR a Google Maps phone listing.
+- website may be empty; query should help find contact email/phone + Maps listing.
+- corridor must be one of: dakbangla_fraser, boring_road, rukanpura, mithapur, danapur.`,
+      user: `Niche: ${query}\nReturn up to ${limit} prospects with diverse corridors.`,
+      temperature: 0.35,
     });
     const list = Array.isArray(parsed?.prospects) ? parsed.prospects : [];
     return list
@@ -433,6 +613,7 @@ Rules: local operators only, no national-only brands without a Patna location, w
         company: String(row?.company || "").trim().slice(0, 80),
         website: String(row?.website || "").trim(),
         query: String(row?.query || row?.company || query).trim(),
+        corridor: String(row?.corridor || "").trim(),
       }))
       .filter((row) => row.company);
   } catch (err) {
@@ -459,34 +640,62 @@ export async function discoverQueries(query, limit = 3, { excludeCompanies = [] 
     });
   };
 
-  // 1) Local catalog first — survives when DuckDuckGo / sites block Render
-  for (const hit of catalogHits(query)) push(hit);
+  const fences = pickFences(4);
 
-  // 2) Best-effort web (soft-fail)
-  try {
-    const web = await searchWeb(`${query} Patna contact email`);
-    for (const row of web) {
-      if (unique.length >= limit) break;
-      try {
-        if (SKIP_HOST.test(new URL(row.url).hostname)) continue;
-      } catch {
-        continue;
+  // 1) Google Maps geofenced places (best for phone + local operators)
+  for (const fence of fences) {
+    if (unique.length >= limit) break;
+    try {
+      const places = await searchMapsPlaces(query, { fence, limit: Math.max(4, Math.ceil(limit / 2)) });
+      for (const place of places) {
+        if (unique.length >= limit) break;
+        push({
+          company: place.company,
+          website: place.website || "",
+          query: `${place.company} ${fence.label} Patna contact email phone website`,
+        });
       }
-      push({
-        company: row.title.replace(/\s*[|\-–].*$/, "").slice(0, 80),
-        website: row.url,
-        query: `${row.title} ${query} official email contact`,
-      });
+    } catch (err) {
+      logFetchSoft("research.discoverMaps", err);
     }
-  } catch (err) {
-    logFetchSoft("research.discoverQueries.search", err);
   }
 
-  // 3) Gemini fill if still short — ask for fresh local operators with public emails
+  // 2) Local catalog
+  for (const hit of catalogHits(query)) push(hit);
+
+  // 3) Widened web SERP
+  const webQueries = [
+    `${query} Patna contact email phone`,
+    `${query} ${fences[0]?.label || "Fraser Road"} Patna showroom email`,
+    `${query} Patna official website "email" OR "contact"`,
+  ];
+  for (const wq of webQueries) {
+    if (unique.length >= limit) break;
+    try {
+      const web = await searchWeb(wq);
+      for (const row of web) {
+        if (unique.length >= limit) break;
+        try {
+          if (SKIP_HOST.test(new URL(row.url).hostname)) continue;
+        } catch {
+          continue;
+        }
+        push({
+          company: row.title.replace(/\s*[|\-–].*$/, "").slice(0, 80),
+          website: row.url,
+          query: `${row.title} ${query} official email phone contact`,
+        });
+      }
+    } catch (err) {
+      logFetchSoft("research.discoverQueries.search", err);
+    }
+  }
+
+  // 4) Gemini fill — prefer public email / Maps phone
   if (unique.length < limit) {
     const more = await geminiDiscover(
-      `${query}\nPrefer companies NOT in this exclude list: ${[...seen].slice(0, 40).join(", ") || "(none)"}\nPrefer ones with a public business email on their website.`,
-      limit - unique.length,
+      `${query}\nGeofence corridors: ${fenceLabels()}\nPrefer companies NOT in: ${[...seen].slice(0, 50).join(", ") || "(none)"}\nPrefer public business email or Google Maps phone.`,
+      Math.max(limit - unique.length, 4),
     );
     for (const row of more) {
       if (unique.length >= limit) break;
@@ -494,8 +703,7 @@ export async function discoverQueries(query, limit = 3, { excludeCompanies = [] 
     }
   }
 
-  if (unique.length === 0) {
-    unique.push({ company: query, website: "", query });
-  }
   return unique.slice(0, limit);
 }
+
+export { hasUsableContact, isDeliverableEmail };

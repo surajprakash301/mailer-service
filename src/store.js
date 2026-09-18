@@ -239,21 +239,24 @@ export async function recordCronRun(job, summary = {}) {
 
 export function normalizeLeadInput(body = {}) {
   const email = String(body.email || "").trim().toLowerCase();
-  if (!email || !email.includes("@")) {
-    throw Object.assign(new Error("A valid email is required"), { status: 400 });
+  const phone = String(body.phone || "").trim();
+  const hasEmail = Boolean(email && email.includes("@"));
+  const hasPhone = Boolean(phone);
+  if (!hasEmail && !hasPhone) {
+    throw Object.assign(new Error("A valid email or phone is required"), { status: 400 });
   }
 
   return {
     company: String(body.company || "").trim(),
     contactName: String(body.contactName || "").trim(),
-    email,
+    email: hasEmail ? email : "",
     title: String(body.title || "").trim(),
     industry: String(body.industry || "").trim(),
     notes: String(body.notes || "").trim(),
     locationHint: String(body.locationHint || "").trim(),
     website: String(body.website || "").trim(),
     researchQuery: String(body.researchQuery || "").trim(),
-    phone: String(body.phone || "").trim(),
+    phone,
   };
 }
 

@@ -184,11 +184,9 @@ export async function createLead(fields) {
     updatedAt: stamp,
   };
 
-  const { data: existing, error: findErr } = await getSupabase()
-    .from(table())
-    .select("company,email")
-    .eq("email", fields.email)
-    .maybeSingle();
+  const { data: existing, error: findErr } = fields.email
+    ? await getSupabase().from(table()).select("company,email").eq("email", fields.email).maybeSingle()
+    : { data: null, error: null };
   if (findErr) throwSb("supabase.createLead.find", findErr);
   if (existing) {
     throw Object.assign(new Error("A lead with this email already exists"), { status: 409 });
@@ -208,7 +206,7 @@ export async function upsertLead(fields, input = {}) {
   const companyKey = fields.company.toLowerCase();
 
   let existing = null;
-  {
+  if (fields.email) {
     const { data, error } = await getSupabase()
       .from(table())
       .select("*")

@@ -1,14 +1,31 @@
 import { generateForLead, sendForLead } from "./campaign.js";
 import { config } from "./config.js";
-import { isDeliverableEmail } from "./emailUtils.js";
+import { hasUsableContact, isDeliverableEmail, isEmailShortlist } from "./emailUtils.js";
 import { logError } from "./errors.js";
 import { statusAfterDraft } from "./leadStatus.js";
 import { pickBoomingIndustries } from "./market.js";
 import { discoverQueries, researchProspect } from "./research.js";
-import { countSentToday, getLead, listLeads, updateLead, upsertLead } from "./store.js";
+import { countSentToday, deleteLead, getLead, listLeads, updateLead, upsertLead } from "./store.js";
 
 function step(name, ok, detail) {
   return { name, ok, detail };
+}
+
+/** Drop leads with neither a real email nor a phone (mock-only junk). */
+async function purgeContactlessLeads() {
+  const leads = await listLeads();
+  let removed = 0;
+  for (const lead of leads) {
+    if (lead.status === "sent") continue;
+    if (hasUsableContact(lead)) continue;
+    try {
+      const ok = await deleteLead(lead.id);
+      if (ok) removed += 1;
+    } catch (err) {
+      logError(`pipeline.purge ${lead.id}`, err);
+    }
+  }
+  return removed;
 }
 
 export async function runResearchPipeline({
@@ -18,11 +35,27 @@ export async function runResearchPipeline({
   send = true,
   /** When true, do not pull already-sent public leads back into the send queue */
   preserveSent = true,
+  /** When true (gather), discard prospects with no email and no phone before DB write */
+  requireContact = false,
 } = {}) {
   const steps = [];
 
   const research = await researchProspect({ query, website });
   steps.push(step("research", true, research.summary));
+
+  if (requireContact && !hasUsableContact(research.lead)) {
+    steps.push(step("discard", true, "No public email and no phone — not saved"));
+    return {
+      research,
+      lead: research.lead,
+      steps,
+      created: false,
+      refreshed: false,
+      requeued: false,
+      discarded: true,
+      reason: "no_email_no_phone",
+    };
+  }
 
   const beforeList = await listLeads();
   const companyKey = String(research.lead.company || "")
@@ -34,8 +67,34 @@ export async function runResearchPipeline({
       (research.lead.email && l.email === research.lead.email),
   );
 
+  // Prefer keeping a prior public email over empty research result
+  const emailForSave =
+    isDeliverableEmail(research.lead.email)
+      ? research.lead.email
+      : isDeliverableEmail(prior?.email)
+        ? prior.email
+        : research.lead.email || "";
+  const phoneForSave = research.lead.phone || prior?.phone || "";
+
+  if (requireContact && !hasUsableContact({ email: emailForSave, phone: phoneForSave })) {
+    steps.push(step("discard", true, "No public email and no phone after merge — not saved"));
+    return {
+      research,
+      lead: research.lead,
+      steps,
+      created: false,
+      refreshed: false,
+      requeued: false,
+      discarded: true,
+      reason: "no_email_no_phone",
+    };
+  }
+
   let lead = await upsertLead({
     ...research.lead,
+    email: emailForSave,
+    phone: phoneForSave,
+    emailSource: isDeliverableEmail(emailForSave) ? "public" : research.lead.emailSource || "",
     researchQuery: query,
   });
 
@@ -48,10 +107,11 @@ export async function runResearchPipeline({
 
   lead = await updateLead(lead.id, {
     website: research.lead.website,
-    emailSource: research.lead.emailSource,
+    emailSource: isDeliverableEmail(lead.email) ? "public" : lead.emailSource || "",
     sources: research.lead.sources,
     researchQuery: query,
-    phone: research.lead.phone || prior?.phone || lead.phone || "",
+    phone: phoneForSave,
+    nearestScreen: research.lead.nearestScreen || prior?.nearestScreen || "",
     status: keepSent ? "sent" : "researched",
   });
   steps.push(
@@ -293,8 +353,9 @@ export async function runMorningGather({
   const remaining = Math.max(0, config.maxEmailsPerDay - sentToday);
   const targetNew = Math.max(Number(minLeads) || 5, 5);
   const targetSendable = Math.max(Number(minSendable) || 5, 5);
-  const industryCount = Math.max(Number(industryLimit) || 3, targetNew * 2, 8);
-  const maxAttempts = Math.max(targetNew * 4, industryCount * Math.max(companiesPerIndustry, 2), 20);
+  const industryCount = Math.max(Number(industryLimit) || 3, targetNew * 2, 12);
+  const perIndustry = Math.max(Number(companiesPerIndustry) || 2, 4);
+  const maxAttempts = Math.max(targetNew * 6, industryCount * perIndustry, 36);
 
   const report = {
     dryRun: config.dryRun,
@@ -310,10 +371,18 @@ export async function runMorningGather({
     requeued: 0,
     sendable: 0,
     skipped: 0,
+    discarded: 0,
+    purged: 0,
     failed: [],
     results: [],
     batchIds: [],
   };
+
+  try {
+    report.purged = await purgeContactlessLeads();
+  } catch (err) {
+    logError("pipeline.gather.purge", err);
+  }
 
   const industries = await pickBoomingIndustries(industryCount);
   report.industries = industries;
@@ -334,11 +403,11 @@ export async function runMorningGather({
     let prospects = [];
     try {
       const need = Math.max(
-        companiesPerIndustry,
-        targetNew - report.added + 2,
-        targetSendable - report.sendable + 2,
+        perIndustry,
+        targetNew - report.added + 4,
+        targetSendable - report.sendable + 4,
       );
-      prospects = await discoverQueries(niche.query, Math.min(Math.max(need, 4), 10), {
+      prospects = await discoverQueries(niche.query, Math.min(Math.max(need, 8), 16), {
         excludeCompanies: [...knownCompanies, ...seenThisRun],
       });
       prospects.sort((a, b) => {
@@ -381,10 +450,24 @@ export async function runMorningGather({
           generate,
           send: false,
           preserveSent: false,
+          requireContact: true,
         });
 
+        if (run.discarded) {
+          report.discarded += 1;
+          report.results.push({
+            ok: true,
+            discarded: true,
+            company: prospect.company,
+            reason: run.reason || "no_email_no_phone",
+            industry: niche.industry,
+            steps: run.steps,
+          });
+          continue;
+        }
+
         let lead = run.lead;
-        const sendable = isDeliverableEmail(lead.email);
+        const sendable = isEmailShortlist(lead);
         const created = Boolean(run.created);
 
         if (created && companyKey) knownCompanies.add(companyKey);
@@ -419,6 +502,7 @@ export async function runMorningGather({
           leadId: lead.id,
           status: lead.status,
           email: lead.email,
+          phone: lead.phone || "",
           emailSource: lead.emailSource,
           industry: niche.industry,
           queryWave: gatherWave,
@@ -446,6 +530,8 @@ export async function runMorningGather({
   if (report.sendable < targetSendable) {
     notes.push(`only ${report.sendable}/${targetSendable} with public email`);
   }
+  if (report.discarded) notes.push(`discarded ${report.discarded} with no email/phone`);
+  if (report.purged) notes.push(`purged ${report.purged} contactless rows`);
   report.note = notes.join("; ");
 
   return report;

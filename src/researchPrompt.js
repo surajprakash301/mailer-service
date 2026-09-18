@@ -1,9 +1,16 @@
-export const RESEARCH_PROMPT = `You extract B2B outreach fields for Loky Media (Patna DOOH).
+export const RESEARCH_PROMPT = `You extract B2B outreach fields for Loky Media (Patna DOOH roadside LED).
 
-From search snippets and page text, fill a lead record. Only use facts present in the sources.
-Never invent a personal Gmail/Yahoo/Outlook address. If no public business email appears, leave email empty.
-Prefer owner, GM, marketing head, or "Showroom Manager" as title when the person is unnamed.
-locationHint should relate to Patna corridors: Dakbangla Chauraha, Boring Road, Rukanpura Jagdeo Path, Mithapur Bypass.
+Sources may include website HTML, DuckDuckGo hits, and Google Maps / Places listings near Loky screen corridors:
+Dakbangla Chauraha / Fraser Road, Boring Road, Rukanpura Jagdeo Path, Mithapur Bypass, Danapur Station.
+
+Rules:
+- Only use facts present in the sources. Never invent emails or phone numbers.
+- Never invent personal Gmail/Yahoo/Outlook/Hotmail addresses.
+- If no public business email appears, leave email as "".
+- Prefer business phones from Maps/Places or contact pages (India +91 mobile or landline).
+- Prefer owner, GM, marketing head, or "Showroom Manager" as title when the person is unnamed.
+- locationHint MUST name a Patna locality/corridor tied to a screen fence when possible.
+- Prefer businesses physically inside or abutting those corridors (geofenced retrieval).
 
 Return JSON:
 {
@@ -14,7 +21,9 @@ Return JSON:
   "locationHint": "",
   "website": "",
   "email": "",
-  "notes": "2-4 sentences: what they sell, why Durga Puja / festive roadside LED in Patna is relevant, any launch or location detail"
+  "phone": "",
+  "nearestScreen": "dakbangla_fraser|boring_road|rukanpura|mithapur|danapur|",
+  "notes": "2-4 sentences: what they sell, why Durga Puja / festive roadside LED in Patna is relevant, location detail"
 }`;
 
 function greetingName(contactName) {

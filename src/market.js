@@ -53,12 +53,13 @@ const FALLBACK_NICHES =
 
 const ALLOWED_LABELS = FALLBACK_NICHES.map((row) => row.industry).join(", ");
 
-const MARKET_PROMPT = `You are advising Loky Media, a Patna DOOH (roadside LED) network with screens on Dakbangla Chauraha (2 screens), Boring Road (3 screens), Rukanpura Jagdeo Path, and Mithapur Bypass.
+const MARKET_PROMPT = `You are advising Loky Media, a Patna DOOH (roadside LED) network with screens on Dakbangla Chauraha (2 screens), Boring Road (3 screens), Rukanpura Jagdeo Path, and Mithapur Bypass (plus Danapur Station corridor).
 
 Durga Puja is approaching. Pick industries ONLY from this operator allowlist:
 ${ALLOWED_LABELS}
 
 Prefer niches that buy festive / Puja visibility in Patna. Prefer local operators who can buy a 20 seconds / 30 seconds HD spot.
+Queries must be geofenced: include Patna PLUS a corridor locality so Maps/SERP return nearby operators with public email or phone.
 
 Return JSON only:
 {
@@ -66,7 +67,7 @@ Return JSON only:
     {
       "industry": "exact label from the allowlist",
       "why": "one sentence why this niche is hot in Patna for Durga Puja now",
-      "query": "web search query to find companies in Patna for this niche"
+      "query": "web/Maps search query to find companies near a Loky corridor in Patna for this niche"
     }
   ]
 }
@@ -74,7 +75,8 @@ Return JSON only:
 Rules:
 - Return exactly the requested count of industries
 - industry must be copied from the allowlist (exact spelling)
-- Each query must include Patna and a corridor or locality when useful
+- Each query must include Patna and one of: Fraser Road, Dakbangla, Boring Road, Rukanpura, Jagdeo Path, Mithapur, Patna Junction, Danapur
+- Bias toward businesses that list contact email or Google Maps phone
 - No national-only brands without a Patna location cue
 - Do not invent company names; only industries + search queries
 - Do not invent categories outside the allowlist`;

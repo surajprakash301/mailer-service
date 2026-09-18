@@ -1,5 +1,5 @@
 import { config } from "./config.js";
-import { isDeliverableEmail } from "./emailUtils.js";
+import { isDeliverableEmail, isEmailShortlist } from "./emailUtils.js";
 import { logError } from "./errors.js";
 import { generatePitch } from "./llm.js";
 import { sendPitch, sleep } from "./mailer.js";
@@ -193,6 +193,9 @@ export async function runDailyCampaign() {
   const leads = await listLeads();
   const wave = todayWave();
 
+  // Email send shortlist: public inbox required (mock / phone-only never queued for Resend)
+  const emailable = leads.filter((lead) => isEmailShortlist(lead));
+
   const score = (lead) => {
     let s = 0;
     if (isDeliverableEmail(lead.email)) s += 100;
@@ -201,7 +204,7 @@ export async function runDailyCampaign() {
     return s;
   };
 
-  const fromGather = leads
+  const fromGather = emailable
     .filter(
       (lead) =>
         lead.queryWave === wave ||
@@ -210,7 +213,7 @@ export async function runDailyCampaign() {
     )
     .sort((a, b) => score(b) - score(a));
 
-  const retry = leads
+  const retry = emailable
     .filter(
       (lead) =>
         !fromGather.some((g) => g.id === lead.id) &&
@@ -220,7 +223,7 @@ export async function runDailyCampaign() {
     )
     .sort((a, b) => score(b) - score(a));
 
-  const staleSent = leads
+  const staleSent = emailable
     .filter(
       (lead) =>
         lead.status === STATUS_SENT &&
@@ -242,16 +245,17 @@ export async function runDailyCampaign() {
     return score(b.lead) - score(a.lead);
   });
 
+  report.shortlisted = queue.length;
+  report.skippedNoEmail = leads.length - emailable.length;
+
   for (const item of queue) {
     if (report.sent >= remaining) {
       report.skipped += 1;
       continue;
     }
-    // After minSend real email sends, still allow remaining cap but prefer stopping mock skips
     const { lead, force, bucket } = item;
 
-    // Once we have minSend successful Resend sends, skip non-deliverable leftovers
-    if (report.sent >= minSend && !isDeliverableEmail(lead.email)) {
+    if (!isEmailShortlist(lead)) {
       report.skipped += 1;
       continue;
     }
@@ -274,7 +278,6 @@ export async function runDailyCampaign() {
         report.skipped += 1;
         continue;
       }
-      // Count only real email (or WA-only success) toward sent
       report.sent += 1;
       await sleep(config.sendDelayMs);
     } catch (err) {

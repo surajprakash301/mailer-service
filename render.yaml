@@ -14,9 +14,9 @@ services:
       - key: DISABLE_INTERNAL_CRON
         value: "true"
       - key: GATHER_INDUSTRIES
-        value: "12"
+        value: "16"
       - key: GATHER_COMPANIES_PER_INDUSTRY
-        value: "3"
+        value: "4"
       - key: GATHER_MIN_LEADS
         value: "5"
       - key: GATHER_MIN_SENDABLE
@@ -41,6 +41,8 @@ services:
         value: gemini-3.1-flash-lite
       - key: GEMINI_MODEL_FALLBACKS
         value: gemini-3.5-flash-lite,gemini-2.5-flash-lite,gemini-2.5-flash,gemini-1.5-flash-8b
+      - key: GOOGLE_MAPS_API_KEY
+        sync: false
       - key: RESEND_API_KEY
         sync: false
       - key: FROM_EMAIL
