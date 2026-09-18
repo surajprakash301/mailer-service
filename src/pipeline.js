@@ -276,52 +276,75 @@ export async function runDiscoveryPipeline({ query, limit = 3, generate = true, 
 }
 
 /**
- * Morning gather: always research + upsert until at least gatherMinLeads (default 5)
- * are queued for send. Does not send email.
+ * Morning gather: widen across many industries until we have:
+ *  - gatherMinLeads NEW companies (not already in DB), and
+ *  - gatherMinSendable leads with a real public email ready for Resend.
+ * Prefer brand-new companies; skip known names until new-count target is met.
  */
 export async function runMorningGather({
   industryLimit = config.gatherIndustries,
   companiesPerIndustry = config.gatherCompaniesPerIndustry,
   minLeads = config.gatherMinLeads,
+  minSendable = config.gatherMinSendable,
   generate = true,
 } = {}) {
   const sentToday = await countSentToday(config.timezone);
   const remaining = Math.max(0, config.maxEmailsPerDay - sentToday);
-  const target = Math.max(Number(minLeads) || 5, 5);
-  // Aim for at least `target` requeued leads; allow extra headroom for failed research
-  const maxTargets = Math.max(target * 2, industryLimit * companiesPerIndustry, target);
+  const targetNew = Math.max(Number(minLeads) || 5, 5);
+  const targetSendable = Math.max(Number(minSendable) || 5, 5);
+  const industryCount = Math.max(Number(industryLimit) || 3, targetNew * 2, 8);
+  const maxAttempts = Math.max(targetNew * 4, industryCount * Math.max(companiesPerIndustry, 2), 20);
 
   const report = {
     dryRun: config.dryRun,
     sentToday,
     remaining,
-    maxTargets,
-    minLeads: target,
+    maxAttempts,
+    minLeads: targetNew,
+    minSendable: targetSendable,
     industries: [],
     added: 0,
     refreshed: 0,
     drafted: 0,
     requeued: 0,
+    sendable: 0,
     skipped: 0,
     failed: [],
     results: [],
     batchIds: [],
   };
 
-  const industries = await pickBoomingIndustries(Math.max(industryLimit, target));
+  const industries = await pickBoomingIndustries(industryCount);
   report.industries = industries;
 
+  const existing = await listLeads();
+  const knownCompanies = new Set(
+    existing.map((l) => String(l.company || "").toLowerCase().trim()).filter(Boolean),
+  );
   const seenThisRun = new Set();
-  let processed = 0;
+  let attempts = 0;
   const gatherWave = `gather-${new Date().toISOString().slice(0, 10)}`;
 
+  const targetsMet = () => report.added >= targetNew && report.sendable >= targetSendable;
+
   for (const niche of industries) {
-    if (report.requeued >= target || processed >= maxTargets) break;
+    if (targetsMet() || attempts >= maxAttempts) break;
 
     let prospects = [];
     try {
-      const need = Math.max(companiesPerIndustry, target - report.requeued);
-      prospects = await discoverQueries(niche.query, Math.min(Math.max(need, 3), 8));
+      const need = Math.max(
+        companiesPerIndustry,
+        targetNew - report.added + 2,
+        targetSendable - report.sendable + 2,
+      );
+      prospects = await discoverQueries(niche.query, Math.min(Math.max(need, 4), 10), {
+        excludeCompanies: [...knownCompanies, ...seenThisRun],
+      });
+      prospects.sort((a, b) => {
+        const aKnown = knownCompanies.has(String(a.company || "").toLowerCase()) ? 1 : 0;
+        const bKnown = knownCompanies.has(String(b.company || "").toLowerCase()) ? 1 : 0;
+        return aKnown - bKnown;
+      });
     } catch (err) {
       logError(`pipeline.gather.discover ${niche.industry}`, err);
       report.failed.push({ industry: niche.industry, error: err.message });
@@ -329,16 +352,20 @@ export async function runMorningGather({
     }
 
     for (const prospect of prospects) {
-      if (report.requeued >= target || processed >= maxTargets) break;
+      if (targetsMet() || attempts >= maxAttempts) break;
 
       const companyKey = String(prospect.company || "").toLowerCase();
       if (companyKey && seenThisRun.has(companyKey)) {
+        report.skipped += 1;
+        continue;
+      }
+      if (companyKey && knownCompanies.has(companyKey) && report.added < targetNew) {
         report.skipped += 1;
         report.results.push({
           ok: true,
           skipped: true,
           company: prospect.company,
-          reason: "duplicate_in_batch",
+          reason: "prefer_new_company",
           industry: niche.industry,
         });
         continue;
@@ -346,37 +373,44 @@ export async function runMorningGather({
       if (companyKey) seenThisRun.add(companyKey);
 
       try {
+        attempts += 1;
         const run = await runResearchPipeline({
           query: prospect.query || prospect.company,
           website: prospect.website || "",
           generate,
           send: false,
-          // Force re-queue so this gather's batch is always pursued by send
           preserveSent: false,
         });
 
-        // Tag batch so send can prioritize today's gather
         let lead = run.lead;
+        const sendable = isDeliverableEmail(lead.email);
+        const created = Boolean(run.created);
+
+        if (created && companyKey) knownCompanies.add(companyKey);
+
         if (run.requeued !== false) {
           lead = await updateLead(lead.id, {
             queryWave: gatherWave,
             status: lead.subject && lead.body ? "ready" : lead.status,
           });
           report.requeued += 1;
-          report.batchIds.push(lead.id);
+          if (sendable) {
+            report.sendable += 1;
+            report.batchIds.push(lead.id);
+          }
         }
 
-        processed += 1;
-        if (run.created) report.added += 1;
+        if (created) report.added += 1;
         else report.refreshed += 1;
         if (lead.subject && lead.body) report.drafted += 1;
 
         report.results.push({
           ok: true,
           skipped: false,
-          created: Boolean(run.created),
+          created,
           refreshed: Boolean(run.refreshed),
           requeued: run.requeued !== false,
+          sendable,
           company: lead.company,
           leadId: lead.id,
           status: lead.status,
@@ -403,9 +437,12 @@ export async function runMorningGather({
     }
   }
 
-  if (report.requeued < target) {
-    report.note = `Only requeued ${report.requeued}/${target} leads this session (research scarcity or failures)`;
+  const notes = [];
+  if (report.added < targetNew) notes.push(`only ${report.added}/${targetNew} new companies`);
+  if (report.sendable < targetSendable) {
+    notes.push(`only ${report.sendable}/${targetSendable} with public email`);
   }
+  report.note = notes.join("; ");
 
   return report;
 }

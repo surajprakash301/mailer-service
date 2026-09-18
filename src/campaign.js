@@ -158,10 +158,12 @@ export async function runDailyCampaign() {
   const sentToday = await countSentToday(config.timezone);
   const remaining = Math.max(0, config.maxEmailsPerDay - sentToday);
   const reEngageDays = config.reEngageAfterDays;
+  const minSend = Math.max(Number(config.sendMinEmails) || 5, 5);
   const report = {
     dryRun: config.dryRun,
     sentToday,
     remaining,
+    minSend,
     generated: 0,
     sent: 0,
     skipped: 0,
@@ -171,48 +173,73 @@ export async function runDailyCampaign() {
 
   if (remaining === 0) {
     report.skipped = (await listLeads()).filter((l) => l.status !== "sent").length;
+    report.note = "Daily send cap reached";
     return report;
   }
 
   const leads = await listLeads();
   const wave = todayWave();
 
-  // 1) Today's gather batch first (always pursue the fresh 5+)
-  const fromGather = leads.filter(
-    (lead) =>
-      lead.queryWave === wave ||
-      (lead.status === "ready" && daysSince(lead.generatedAt || lead.updatedAt) < 1),
-  );
+  const score = (lead) => {
+    let s = 0;
+    if (isDeliverableEmail(lead.email)) s += 100;
+    if (lead.queryWave === wave) s += 50;
+    if (lead.status === "ready") s += 10;
+    return s;
+  };
 
-  // 2) Other unsent / retryable
-  const retry = leads.filter(
-    (lead) =>
-      !fromGather.some((g) => g.id === lead.id) &&
-      ["ready", "researched", "pending", "failed"].includes(String(lead.status || "")),
-  );
+  const fromGather = leads
+    .filter(
+      (lead) =>
+        lead.queryWave === wave ||
+        (lead.status === "ready" && daysSince(lead.generatedAt || lead.updatedAt) < 1),
+    )
+    .sort((a, b) => score(b) - score(a));
 
-  // 3) Re-engage: successfully sent 10+ days ago
-  const staleSent = leads.filter(
-    (lead) =>
-      lead.status === "sent" &&
-      lead.sentAt &&
-      daysSince(lead.sentAt) >= reEngageDays &&
-      !fromGather.some((g) => g.id === lead.id),
-  );
+  const retry = leads
+    .filter(
+      (lead) =>
+        !fromGather.some((g) => g.id === lead.id) &&
+        ["ready", "researched", "pending", "failed"].includes(String(lead.status || "")),
+    )
+    .sort((a, b) => score(b) - score(a));
 
+  const staleSent = leads
+    .filter(
+      (lead) =>
+        lead.status === "sent" &&
+        lead.sentAt &&
+        daysSince(lead.sentAt) >= reEngageDays &&
+        !fromGather.some((g) => g.id === lead.id),
+    )
+    .sort((a, b) => score(b) - score(a));
+
+  // Deliverable first within each bucket so we hit SEND_MIN_EMAILS
   const queue = [
     ...fromGather.map((l) => ({ lead: l, force: true, bucket: "gather" })),
     ...retry.map((l) => ({ lead: l, force: false, bucket: "retry" })),
     ...staleSent.map((l) => ({ lead: l, force: true, bucket: "reengage" })),
-  ];
+  ].sort((a, b) => {
+    const bucketRank = { gather: 0, retry: 1, reengage: 2 };
+    const br = (bucketRank[a.bucket] ?? 9) - (bucketRank[b.bucket] ?? 9);
+    if (br !== 0) return br;
+    return score(b.lead) - score(a.lead);
+  });
 
   for (const item of queue) {
     if (report.sent >= remaining) {
       report.skipped += 1;
       continue;
     }
-
+    // After minSend real email sends, still allow remaining cap but prefer stopping mock skips
     const { lead, force, bucket } = item;
+
+    // Once we have minSend successful Resend sends, skip non-deliverable leftovers
+    if (report.sent >= minSend && !isDeliverableEmail(lead.email)) {
+      report.skipped += 1;
+      continue;
+    }
+
     try {
       let current = lead;
       if (bucket === "reengage") {
@@ -231,6 +258,7 @@ export async function runDailyCampaign() {
         report.skipped += 1;
         continue;
       }
+      // Count only real email (or WA-only success) toward sent
       report.sent += 1;
       await sleep(config.sendDelayMs);
     } catch (err) {
@@ -242,6 +270,10 @@ export async function runDailyCampaign() {
         logError(`campaign persist failure for lead=${lead.id}`, persistErr);
       }
     }
+  }
+
+  if (report.sent < minSend) {
+    report.note = `Only sent ${report.sent}/${minSend} (need more public-email leads from gather)`;
   }
 
   return report;

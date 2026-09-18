@@ -441,9 +441,11 @@ Rules: local operators only, no national-only brands without a Patna location, w
   }
 }
 
-export async function discoverQueries(query, limit = 3) {
+export async function discoverQueries(query, limit = 3, { excludeCompanies = [] } = {}) {
   const unique = [];
-  const seen = new Set();
+  const seen = new Set(
+    (excludeCompanies || []).map((c) => String(c || "").toLowerCase().trim()).filter(Boolean),
+  );
   const push = (item) => {
     const key = String(item.company || "")
       .toLowerCase()
@@ -462,7 +464,7 @@ export async function discoverQueries(query, limit = 3) {
 
   // 2) Best-effort web (soft-fail)
   try {
-    const web = await searchWeb(`${query} Patna`);
+    const web = await searchWeb(`${query} Patna contact email`);
     for (const row of web) {
       if (unique.length >= limit) break;
       try {
@@ -473,16 +475,19 @@ export async function discoverQueries(query, limit = 3) {
       push({
         company: row.title.replace(/\s*[|\-–].*$/, "").slice(0, 80),
         website: row.url,
-        query: `${row.title} ${query}`,
+        query: `${row.title} ${query} official email contact`,
       });
     }
   } catch (err) {
     logFetchSoft("research.discoverQueries.search", err);
   }
 
-  // 3) Gemini fill if still short
+  // 3) Gemini fill if still short — ask for fresh local operators with public emails
   if (unique.length < limit) {
-    const more = await geminiDiscover(query, limit - unique.length);
+    const more = await geminiDiscover(
+      `${query}\nPrefer companies NOT in this exclude list: ${[...seen].slice(0, 40).join(", ") || "(none)"}\nPrefer ones with a public business email on their website.`,
+      limit - unique.length,
+    );
     for (const row of more) {
       if (unique.length >= limit) break;
       push(row);

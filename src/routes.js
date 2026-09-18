@@ -66,10 +66,12 @@ function compactGatherReport(report = {}) {
     added: report.added,
     refreshed: report.refreshed || 0,
     requeued: report.requeued || 0,
+    sendable: report.sendable || 0,
     drafted: report.drafted,
     skipped: report.skipped,
     failed: Array.isArray(report.failed) ? report.failed.length : report.failed || 0,
     minLeads: report.minLeads || 5,
+    minSendable: report.minSendable || 5,
     industries: (report.industries || []).map((i) => i.industry || i).filter(Boolean),
     note: report.note || "",
   };
@@ -84,7 +86,9 @@ function compactSendReport(report = {}) {
     generated: report.generated,
     skipped: report.skipped,
     reEngaged: report.reEngaged || 0,
+    minSend: report.minSend || 5,
     failed: Array.isArray(report.failed) ? report.failed.length : report.failed || 0,
+    note: report.note || "",
   };
 }
 
@@ -317,6 +321,7 @@ router.post("/pipeline/gather", requireCronSecret, asyncRoute(async (req, res) =
       added: report.added,
       refreshed: report.refreshed || 0,
       requeued: report.requeued || 0,
+      sendable: report.sendable || 0,
       drafted: report.drafted,
       skipped: report.skipped,
       failed: report.failed?.length || 0,

@@ -24,8 +24,12 @@ export const config = {
   sendCronExpression: process.env.SEND_CRON?.trim() || process.env.CRON_EXPRESSION?.trim() || "45 8 * * *",
   gatherIndustries: Number(process.env.GATHER_INDUSTRIES) || 3,
   gatherCompaniesPerIndustry: Number(process.env.GATHER_COMPANIES_PER_INDUSTRY) || 2,
-  /** Minimum leads researched+queued per gather session */
+  /** Minimum NEW companies to insert per gather session */
   gatherMinLeads: Math.max(1, Number(process.env.GATHER_MIN_LEADS) || 5),
+  /** Minimum leads with a real public email to queue for send each gather */
+  gatherMinSendable: Math.max(1, Number(process.env.GATHER_MIN_SENDABLE) || 5),
+  /** Minimum successful outreach attempts per send cron */
+  sendMinEmails: Math.max(1, Number(process.env.SEND_MIN_EMAILS) || 5),
   /** Re-pursue successfully sent leads after this many days */
   reEngageAfterDays: Math.max(1, Number(process.env.RE_ENGAGE_AFTER_DAYS) || 10),
   dataDir: process.env.DATA_DIR?.trim() || "data",
