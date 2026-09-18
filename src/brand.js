@@ -18,7 +18,7 @@ export const LOKY_BRAND = {
   heroBgPath: "/email/loky-durga-puja-header.jpg",
   /** Absolute URL required in email clients; served from /public/email/ */
   inventoryBannerPath: "/email/loky-dooh-banner.jpg",
-  ctaIconPath: "/email/icon-screen.svg",
+  ctaIconPath: "/email/icon-screen.png",
   whatsappIconPath: "/email/icon-whatsapp.png",
   instagramIconPath: "/email/icon-instagram.png",
   supportEmail: "support@lokymedia.com",
@@ -48,14 +48,19 @@ export const LOKY_BRAND = {
   ctaIconPx: 20,
 };
 
-/** Base URL for hosted email assets (local preview or Render). */
+/** Base URL for hosted email assets (must be publicly reachable — never localhost in production mail). */
 export function emailAssetBaseUrl() {
   const raw =
     process.env.EMAIL_ASSET_BASE_URL?.trim() ||
     process.env.APP_URL?.trim() ||
     process.env.PUBLIC_BASE_URL?.trim() ||
     `http://localhost:${process.env.PORT || 8787}`;
-  return raw.replace(/\/$/, "");
+  const base = raw.replace(/\/$/, "");
+  // Guard: Resend/Gmail cannot load localhost images
+  if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(base) && process.env.APP_URL) {
+    return String(process.env.APP_URL).replace(/\/$/, "");
+  }
+  return base;
 }
 
 export function inventoryBannerUrl() {

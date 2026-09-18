@@ -14,11 +14,19 @@ services:
       - key: DISABLE_INTERNAL_CRON
         value: "true"
       - key: GATHER_INDUSTRIES
-        value: "10"
+        value: "5"
       - key: GATHER_COMPANIES_PER_INDUSTRY
-        value: "3"
+        value: "2"
+      - key: GATHER_MIN_LEADS
+        value: "5"
+      - key: RE_ENGAGE_AFTER_DAYS
+        value: "10"
       - key: MAX_EMAILS_PER_DAY
         value: "25"
+      - key: EMAIL_ASSET_BASE_URL
+        value: "https://mailer-service-dhq1.onrender.com"
+      - key: APP_URL
+        value: "https://mailer-service-dhq1.onrender.com"
       - key: DRY_RUN
         value: "true"
       - key: WHATSAPP_DRY_RUN

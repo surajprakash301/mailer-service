@@ -276,49 +276,52 @@ export async function runDiscoveryPipeline({ query, limit = 3, generate = true, 
 }
 
 /**
- * Morning gather: AI market pick → discover companies → always research + upsert.
- * Never skips existing companies (refreshes them). Does not send email.
- * Incomplete / mock-email leads are still drafted so send can pursue email or WhatsApp.
+ * Morning gather: always research + upsert until at least gatherMinLeads (default 5)
+ * are queued for send. Does not send email.
  */
 export async function runMorningGather({
   industryLimit = config.gatherIndustries,
   companiesPerIndustry = config.gatherCompaniesPerIndustry,
+  minLeads = config.gatherMinLeads,
   generate = true,
 } = {}) {
   const sentToday = await countSentToday(config.timezone);
   const remaining = Math.max(0, config.maxEmailsPerDay - sentToday);
-  const maxTargets = Math.max(1, industryLimit * companiesPerIndustry);
+  const target = Math.max(Number(minLeads) || 5, 5);
+  // Aim for at least `target` requeued leads; allow extra headroom for failed research
+  const maxTargets = Math.max(target * 2, industryLimit * companiesPerIndustry, target);
 
   const report = {
     dryRun: config.dryRun,
     sentToday,
     remaining,
     maxTargets,
+    minLeads: target,
     industries: [],
     added: 0,
     refreshed: 0,
     drafted: 0,
+    requeued: 0,
     skipped: 0,
     failed: [],
     results: [],
+    batchIds: [],
   };
 
-  const industries = await pickBoomingIndustries(industryLimit);
+  const industries = await pickBoomingIndustries(Math.max(industryLimit, target));
   report.industries = industries;
 
-  // Only de-dupe within this run — never skip because the company already exists in DB
   const seenThisRun = new Set();
   let processed = 0;
+  const gatherWave = `gather-${new Date().toISOString().slice(0, 10)}`;
 
   for (const niche of industries) {
-    if (processed >= maxTargets) break;
+    if (report.requeued >= target || processed >= maxTargets) break;
 
     let prospects = [];
     try {
-      prospects = await discoverQueries(
-        niche.query,
-        Math.min(Number(companiesPerIndustry) || 2, 5),
-      );
+      const need = Math.max(companiesPerIndustry, target - report.requeued);
+      prospects = await discoverQueries(niche.query, Math.min(Math.max(need, 3), 8));
     } catch (err) {
       logError(`pipeline.gather.discover ${niche.industry}`, err);
       report.failed.push({ industry: niche.industry, error: err.message });
@@ -326,7 +329,7 @@ export async function runMorningGather({
     }
 
     for (const prospect of prospects) {
-      if (processed >= maxTargets) break;
+      if (report.requeued >= target || processed >= maxTargets) break;
 
       const companyKey = String(prospect.company || "").toLowerCase();
       if (companyKey && seenThisRun.has(companyKey)) {
@@ -348,13 +351,25 @@ export async function runMorningGather({
           website: prospect.website || "",
           generate,
           send: false,
-          preserveSent: true,
+          // Force re-queue so this gather's batch is always pursued by send
+          preserveSent: false,
         });
+
+        // Tag batch so send can prioritize today's gather
+        let lead = run.lead;
+        if (run.requeued !== false) {
+          lead = await updateLead(lead.id, {
+            queryWave: gatherWave,
+            status: lead.subject && lead.body ? "ready" : lead.status,
+          });
+          report.requeued += 1;
+          report.batchIds.push(lead.id);
+        }
 
         processed += 1;
         if (run.created) report.added += 1;
         else report.refreshed += 1;
-        if (run.lead.subject && run.lead.body && run.requeued !== false) report.drafted += 1;
+        if (lead.subject && lead.body) report.drafted += 1;
 
         report.results.push({
           ok: true,
@@ -362,12 +377,13 @@ export async function runMorningGather({
           created: Boolean(run.created),
           refreshed: Boolean(run.refreshed),
           requeued: run.requeued !== false,
-          company: run.lead.company,
-          leadId: run.lead.id,
-          status: run.lead.status,
-          email: run.lead.email,
-          emailSource: run.lead.emailSource,
+          company: lead.company,
+          leadId: lead.id,
+          status: lead.status,
+          email: lead.email,
+          emailSource: lead.emailSource,
           industry: niche.industry,
+          queryWave: gatherWave,
           steps: run.steps,
         });
       } catch (err) {
@@ -385,6 +401,10 @@ export async function runMorningGather({
         });
       }
     }
+  }
+
+  if (report.requeued < target) {
+    report.note = `Only requeued ${report.requeued}/${target} leads this session (research scarcity or failures)`;
   }
 
   return report;

@@ -24,6 +24,10 @@ export const config = {
   sendCronExpression: process.env.SEND_CRON?.trim() || process.env.CRON_EXPRESSION?.trim() || "45 8 * * *",
   gatherIndustries: Number(process.env.GATHER_INDUSTRIES) || 3,
   gatherCompaniesPerIndustry: Number(process.env.GATHER_COMPANIES_PER_INDUSTRY) || 2,
+  /** Minimum leads researched+queued per gather session */
+  gatherMinLeads: Math.max(1, Number(process.env.GATHER_MIN_LEADS) || 5),
+  /** Re-pursue successfully sent leads after this many days */
+  reEngageAfterDays: Math.max(1, Number(process.env.RE_ENGAGE_AFTER_DAYS) || 10),
   dataDir: process.env.DATA_DIR?.trim() || "data",
   supabaseUrl:
     process.env.SUPABASE_URL?.trim() || process.env.NEXT_PUBLIC_SUPABASE_URL?.trim() || "",

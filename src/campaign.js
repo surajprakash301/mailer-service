@@ -143,9 +143,21 @@ export async function sendForLead(lead, { force = false, whatsapp = true, forceL
 
 export { checkWhatsAppNumber };
 
+function daysSince(iso) {
+  if (!iso) return Infinity;
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return Infinity;
+  return (Date.now() - t) / (24 * 60 * 60 * 1000);
+}
+
+function todayWave() {
+  return `gather-${new Date().toISOString().slice(0, 10)}`;
+}
+
 export async function runDailyCampaign() {
   const sentToday = await countSentToday(config.timezone);
   const remaining = Math.max(0, config.maxEmailsPerDay - sentToday);
+  const reEngageDays = config.reEngageAfterDays;
   const report = {
     dryRun: config.dryRun,
     sentToday,
@@ -153,6 +165,7 @@ export async function runDailyCampaign() {
     generated: 0,
     sent: 0,
     skipped: 0,
+    reEngaged: 0,
     failed: [],
   };
 
@@ -162,26 +175,58 @@ export async function runDailyCampaign() {
   }
 
   const leads = await listLeads();
-  // Pursue ready first, then researched/pending/failed (retry). Never re-send successful sends.
-  const ready = leads.filter((lead) => lead.status === "ready");
-  const retry = leads.filter((lead) =>
-    ["researched", "pending", "failed"].includes(String(lead.status || "")),
-  );
-  const queue = [...ready, ...retry];
+  const wave = todayWave();
 
-  for (const lead of queue) {
+  // 1) Today's gather batch first (always pursue the fresh 5+)
+  const fromGather = leads.filter(
+    (lead) =>
+      lead.queryWave === wave ||
+      (lead.status === "ready" && daysSince(lead.generatedAt || lead.updatedAt) < 1),
+  );
+
+  // 2) Other unsent / retryable
+  const retry = leads.filter(
+    (lead) =>
+      !fromGather.some((g) => g.id === lead.id) &&
+      ["ready", "researched", "pending", "failed"].includes(String(lead.status || "")),
+  );
+
+  // 3) Re-engage: successfully sent 10+ days ago
+  const staleSent = leads.filter(
+    (lead) =>
+      lead.status === "sent" &&
+      lead.sentAt &&
+      daysSince(lead.sentAt) >= reEngageDays &&
+      !fromGather.some((g) => g.id === lead.id),
+  );
+
+  const queue = [
+    ...fromGather.map((l) => ({ lead: l, force: true, bucket: "gather" })),
+    ...retry.map((l) => ({ lead: l, force: false, bucket: "retry" })),
+    ...staleSent.map((l) => ({ lead: l, force: true, bucket: "reengage" })),
+  ];
+
+  for (const item of queue) {
     if (report.sent >= remaining) {
       report.skipped += 1;
       continue;
     }
 
+    const { lead, force, bucket } = item;
     try {
       let current = lead;
+      if (bucket === "reengage") {
+        current = await updateLead(lead.id, {
+          status: "ready",
+          lastError: `re-engage after ${reEngageDays}d`,
+        });
+        report.reEngaged += 1;
+      }
       if (!eligibleForSend(current)) {
         current = await generateForLead(current);
         report.generated += 1;
       }
-      const result = await sendForLead(current);
+      const result = await sendForLead(current, { force: force || bucket === "gather" });
       if (result.pursued === false) {
         report.skipped += 1;
         continue;
@@ -190,7 +235,7 @@ export async function runDailyCampaign() {
       await sleep(config.sendDelayMs);
     } catch (err) {
       logError(`campaign lead=${lead.id} email=${lead.email}`, err);
-      report.failed.push({ id: lead.id, email: lead.email, error: err.message });
+      report.failed.push({ id: lead.id, email: lead.email, error: err.message, bucket });
       try {
         await updateLead(lead.id, { status: "failed", lastError: err.message });
       } catch (persistErr) {
