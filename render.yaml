@@ -18,9 +18,9 @@ services:
       - key: GATHER_COMPANIES_PER_INDUSTRY
         value: "6"
       - key: GATHER_MIN_LEADS
-        value: "14"
+        value: "21"
       - key: GATHER_MIN_SENDABLE
-        value: "14"
+        value: "21"
       - key: GATHER_PER_INDUSTRY_MIN
         value: "3"
       - key: GATHER_FOCUS_INDUSTRIES

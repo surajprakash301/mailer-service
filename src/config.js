@@ -25,10 +25,10 @@ export const config = {
   gatherIndustries: Number(process.env.GATHER_INDUSTRIES) || 7,
   gatherCompaniesPerIndustry: Number(process.env.GATHER_COMPANIES_PER_INDUSTRY) || 6,
   /** Minimum NEW companies to insert per gather session */
-  gatherMinLeads: Math.max(1, Number(process.env.GATHER_MIN_LEADS) || 14),
+  gatherMinLeads: Math.max(1, Number(process.env.GATHER_MIN_LEADS) || 21),
   /** Minimum leads with a decision-maker email to queue for send each gather */
-  gatherMinSendable: Math.max(1, Number(process.env.GATHER_MIN_SENDABLE) || 14),
-  /** Minimum saved leads (decision email or phone) per industry each gather */
+  gatherMinSendable: Math.max(1, Number(process.env.GATHER_MIN_SENDABLE) || 21),
+  /** Minimum saved leads with decision email per industry each gather */
   gatherPerIndustryMin: Math.max(1, Number(process.env.GATHER_PER_INDUSTRY_MIN) || 3),
   /** Minimum successful outreach attempts per send cron */
   sendMinEmails: Math.max(1, Number(process.env.SEND_MIN_EMAILS) || 5),

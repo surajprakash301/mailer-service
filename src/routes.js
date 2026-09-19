@@ -113,6 +113,9 @@ router.get("/health", asyncRoute(async (_req, res) => {
     sendCron: config.sendCronExpression,
     gatherIndustries: config.gatherIndustries,
     gatherCompaniesPerIndustry: config.gatherCompaniesPerIndustry,
+    gatherMinLeads: config.gatherMinLeads,
+    gatherMinSendable: config.gatherMinSendable,
+    gatherPerIndustryMin: config.gatherPerIndustryMin,
     dataDir: config.dataDir,
     storage: storageBackend(),
     supabaseConfigured: useSupabaseStore(),
@@ -292,36 +295,48 @@ router.post("/campaigns/run", requireCronSecret, asyncRoute(async (req, res) => 
   const run = async () => {
     const report = await runDailyCampaign();
     await recordCronRun("send", {
+      status: "completed",
       dryRun: report.dryRun,
       sent: report.sent,
       generated: report.generated,
       skipped: report.skipped,
       reEngaged: report.reEngaged || 0,
       failed: report.failed?.length || 0,
+      note: report.note || "",
       trigger: sync ? "api-sync" : "api-async",
     });
     return report;
   };
 
-  // cron-job.org free timeout is often 30s — respond fast, finish in background
+  // cron-job.org often treats only HTTP 200 as success (202 can show as Failed).
+  // Always ack fast with a tiny body — never return the full report to the cron UI.
   if (!sync) {
-    res.status(202).json({
+    res.status(200).json({
       ok: true,
       job: "send",
       accepted: true,
       note: "Send running in background. Check /api/health lastCronRuns.send shortly.",
     });
     setImmediate(() => {
+      recordCronRun("send", {
+        status: "started",
+        trigger: "api-async",
+        note: "accepted — running in background",
+      }).catch((err) => logError("campaigns.run.recordStart", err));
       run().catch(async (err) => {
         logError("campaigns.run.async", err);
-        await recordCronRun("send", { error: err.message, trigger: "api-async" }).catch(() => undefined);
+        await recordCronRun("send", {
+          status: "failed",
+          error: String(err.message || err).slice(0, 240),
+          trigger: "api-async",
+        }).catch(() => undefined);
       });
     });
     return;
   }
 
   const report = await run();
-  res.json(verbose ? { report } : compactSendReport(report));
+  res.status(200).json(verbose ? { ok: true, report: compactSendReport(report) } : compactSendReport(report));
 }));
 
 /** External schedulers (GitHub Actions / cron-job.org) can stamp health without a full job. */
@@ -363,54 +378,63 @@ router.post("/pipeline/discover", asyncRoute(async (req, res) => {
   res.json(result);
 }));
 
-router.post("/pipeline/gather", requireCronSecret, asyncRoute(async (req, res) => {
-  const industryLimit = req.body?.industryLimit ?? config.gatherIndustries;
-  const companiesPerIndustry = req.body?.companiesPerIndustry ?? config.gatherCompaniesPerIndustry;
-  const generate = req.body?.generate !== false;
+async function handleGather(req, res) {
+  const industryLimit = req.body?.industryLimit ?? req.query?.industryLimit ?? config.gatherIndustries;
+  const companiesPerIndustry =
+    req.body?.companiesPerIndustry ?? req.query?.companiesPerIndustry ?? config.gatherCompaniesPerIndustry;
+  const generate = req.body?.generate !== false && req.query?.generate !== "0";
   const sync = req.query?.sync === "1" || req.body?.sync === true;
   const verbose = req.query?.verbose === "1" || req.body?.verbose === true;
 
   const run = async () => {
     const report = await runMorningGather({
-      industryLimit,
-      companiesPerIndustry,
+      industryLimit: Number(industryLimit) || config.gatherIndustries,
+      companiesPerIndustry: Number(companiesPerIndustry) || config.gatherCompaniesPerIndustry,
       generate,
     });
+    const compact = compactGatherReport(report);
     await recordCronRun("gather", {
-      industries: report.industries?.map((i) => i.industry),
-      added: report.added,
-      refreshed: report.refreshed || 0,
-      requeued: report.requeued || 0,
-      sendable: report.sendable || 0,
-      drafted: report.drafted,
-      skipped: report.skipped,
-      failed: report.failed?.length || 0,
-      note: report.note || "",
+      status: "completed",
+      industries: compact.industries,
+      added: compact.added,
+      refreshed: compact.refreshed || 0,
+      requeued: compact.requeued || 0,
+      sendable: compact.sendable || 0,
+      drafted: compact.drafted,
+      discarded: compact.discarded || 0,
+      purged: compact.purged || 0,
+      skipped: compact.skipped,
+      failed: compact.failed || 0,
+      perIndustryMin: compact.perIndustryMin,
+      byIndustry: compact.byIndustry,
+      note: compact.note || "",
       trigger: sync ? "api-sync" : "api-async",
     });
-    return report;
+    return compact;
   };
 
-  // Default async: gather (5+ Gemini researches) often exceeds cron-job.org's 30s timeout
+  // Default async + HTTP 200 (cron-job.org marks 202 as Failed HTTP error).
+  // Tiny JSON only — never stream the full gather report to the cron console.
   if (!sync) {
-    await recordCronRun("gather", {
-      status: "started",
-      trigger: "api-async",
-      note: "accepted — running in background",
-    });
-    res.status(202).json({
+    res.status(200).json({
       ok: true,
       job: "gather",
       accepted: true,
       minLeads: config.gatherMinLeads,
-      note: "Gather running in background. Check /api/health lastCronRuns.gather in 1–3 minutes.",
+      perIndustryMin: config.gatherPerIndustryMin,
+      note: "Gather running in background. Check /api/health lastCronRuns.gather in a few minutes.",
     });
     setImmediate(() => {
+      recordCronRun("gather", {
+        status: "started",
+        trigger: "api-async",
+        note: "accepted — running in background",
+      }).catch((err) => logError("pipeline.gather.recordStart", err));
       run().catch(async (err) => {
         logError("pipeline.gather.async", err);
         await recordCronRun("gather", {
-          error: err.message,
           status: "failed",
+          error: String(err.message || err).slice(0, 240),
           trigger: "api-async",
         }).catch(() => undefined);
       });
@@ -418,9 +442,13 @@ router.post("/pipeline/gather", requireCronSecret, asyncRoute(async (req, res) =
     return;
   }
 
-  const report = await run();
-  res.json(verbose ? { report } : compactGatherReport(report));
-}));
+  const compact = await run();
+  res.status(200).json(verbose ? { ok: true, ...compact } : compact);
+}
+
+router.post("/pipeline/gather", requireCronSecret, asyncRoute(handleGather));
+/** GET supported so cron-job.org URL-only jobs work with ?cronSecret= */
+router.get("/pipeline/gather", requireCronSecret, asyncRoute(handleGather));
 
 router.post("/pipeline/import", asyncRoute(async (req, res) => {
   const result = await importProspectsPipeline(req.body || {});

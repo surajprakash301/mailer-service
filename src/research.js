@@ -532,35 +532,65 @@ function mergeLead(query, extracted, pages, catalog, mapsNotes = []) {
     extracted?.website || mapsHit?.website || pages[0]?.url || base.website || "",
   ).trim();
   const publicEmail = pickPublicEmail(extracted, pages, website);
-  // Never invent mock inboxes — empty email if none found (discarded later if also no phone)
+  // Never invent mock inboxes — empty email if none found (discarded later)
   const email = publicEmail || "";
   const emailSource = publicEmail ? "public" : "";
-  const phone = pickPhone(extracted, pages, mapsNotes);
+  const phone = pickPhone(extracted, pages, mapsNotes) || "";
+
+  const rawName = String(extracted?.contactName || "").trim();
+  const rawTitle = String(extracted?.title || base.title || "").trim();
+  const roleOnly =
+    /^(showroom|store|sales|marketing|general|front|public|hospital|team|medical|branch|center|centre|retail|unit|customer|care|support|manager|owner|gm|proprietor|director|ceo|founder|office|desk|head)(\s+(manager|head|officer|team))?$/i.test(
+      rawName,
+    );
+  const contactName = roleOnly ? "" : rawName;
+  const title =
+    rawTitle ||
+    (roleOnly ? rawName : "") ||
+    (DECISION_HINT_FROM_EMAIL(email) || "Decision maker");
 
   return {
     company: String(company).trim(),
-    contactName: String(extracted?.contactName || base.contactName || "Marketing team").trim(),
-    title: String(extracted?.title || base.title || "").trim(),
+    contactName,
+    title: String(title).trim(),
     industry: String(extracted?.industry || base.industry || "").trim(),
     locationHint: String(
       extracted?.locationHint ||
         mapsHit?.locationHint ||
         base.locationHint ||
-        "Patna commuter corridors",
-    ).trim(),
+        "Patna corridor",
+    )
+      .replace(/\d{1,5}\s+[A-Za-z].{10,}/g, "") // strip long street/address blobs
+      .trim()
+      .slice(0, 80),
     nearestScreen: String(extracted?.nearestScreen || mapsHit?.nearestScreen || "").trim(),
     notes: String(
-      extracted?.notes || base.notes || `Researched from public + Maps sources for: ${query}`,
-    ).trim(),
+      extracted?.notes || `Senior contact research for Patna DOOH: ${query}`,
+    )
+      .trim()
+      .slice(0, 500),
     website,
     email,
-    phone,
+    phone, // empty string when unknown (dashboard shows as no phone)
     emailSource,
     sources: [
       ...pages.map((p) => p.url),
       ...(mapsNotes || []).map((m) => m.mapsUrl).filter(Boolean),
     ].filter(Boolean),
   };
+}
+
+function DECISION_HINT_FROM_EMAIL(email) {
+  const local = String(email || "")
+    .split("@")[0]
+    ?.toLowerCase();
+  if (!local) return "";
+  if (/founder|co-?founder/.test(local)) return "Founder";
+  if (/^ceo$/.test(local)) return "CEO";
+  if (/^md$|managing/.test(local)) return "Managing Director";
+  if (/marketing|brand|cmo/.test(local)) return "Marketing Head";
+  if (/owner|proprietor/.test(local)) return "Owner";
+  return "";
 }
 
 export async function researchProspect({ query, website = "" } = {}) {

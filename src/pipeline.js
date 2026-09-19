@@ -44,7 +44,7 @@ export async function runResearchPipeline({
   steps.push(step("research", true, research.summary));
 
   if (requireContact && !hasUsableContact(research.lead)) {
-    steps.push(step("discard", true, "No public email and no phone — not saved"));
+    steps.push(step("discard", true, "No decision-maker email — not saved"));
     return {
       research,
       lead: research.lead,
@@ -53,7 +53,7 @@ export async function runResearchPipeline({
       refreshed: false,
       requeued: false,
       discarded: true,
-      reason: "no_email_no_phone",
+      reason: "no_decision_maker_email",
     };
   }
 
@@ -77,7 +77,7 @@ export async function runResearchPipeline({
   const phoneForSave = research.lead.phone || prior?.phone || "";
 
   if (requireContact && !hasUsableContact({ email: emailForSave, phone: phoneForSave })) {
-    steps.push(step("discard", true, "No public email and no phone after merge — not saved"));
+    steps.push(step("discard", true, "No decision-maker email after merge — not saved"));
     return {
       research,
       lead: research.lead,
@@ -86,7 +86,7 @@ export async function runResearchPipeline({
       refreshed: false,
       requeued: false,
       discarded: true,
-      reason: "no_email_no_phone",
+      reason: "no_decision_maker_email",
     };
   }
 
@@ -475,9 +475,8 @@ export async function runMorningGather({
             ok: true,
             discarded: true,
             company: prospect.company,
-            reason: run.reason || "no_decision_email_or_phone",
+            reason: run.reason || "no_decision_maker_email",
             industry: industryLabel,
-            steps: run.steps,
           });
           continue;
         }
@@ -529,14 +528,13 @@ export async function runMorningGather({
           leadId: lead.id,
           status: lead.status,
           email: lead.email,
-          phone: lead.phone || "",
+          phone: lead.phone || null,
           contactName: lead.contactName || "",
           title: lead.title || "",
-          emailSource: lead.emailSource,
           industry: lead.industry || industryLabel,
-          queryWave: gatherWave,
-          steps: run.steps,
         });
+        // Keep report payload small (cron / meta row) — drop step traces after ~40 rows
+        if (report.results.length > 40) report.results = report.results.slice(-40);
       } catch (err) {
         logError(`pipeline.gather ${prospect.company}`, err);
         bucket.failed += 1;

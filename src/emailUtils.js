@@ -71,16 +71,14 @@ export function isValidPhone(phone) {
 }
 
 /**
- * Persistable: decision-maker email, OR a valid phone (WA path).
- * Pure care@/support@ with no phone is discarded.
+ * Persistable for gather: must have a decision-maker email.
+ * Phone is optional (stored as empty/null when unknown).
  */
 export function hasUsableContact(lead = {}) {
-  if (isDecisionMakerEmail(lead.email)) return true;
-  if (isValidPhone(lead.phone)) return true;
-  return false;
+  return isDecisionMakerEmail(lead.email);
 }
 
-/** Resend shortlist — only decision-maker style public inboxes. */
+/** Resend shortlist — decision-maker style public inboxes only. */
 export function isEmailShortlist(lead = {}) {
   return isDecisionMakerEmail(lead.email);
 }
