@@ -26,9 +26,49 @@
             <a href="/dashboard" aria-current="page">Dashboard</a>
             <a href="/">Operator</a>
             <a href="https://console.cron-job.org/jobs" target="_blank" rel="noopener noreferrer">Cron jobs ↗</a>
+            <button type="button" class="nav-btn" id="btn-add-lead">Add leads</button>
           </nav>
         </div>
       </header>
+
+      <dialog class="modal" id="add-lead-modal" aria-labelledby="add-lead-title">
+        <form method="dialog" class="modal-card" id="add-lead-form">
+          <div class="modal-head">
+            <h2 id="add-lead-title">Add lead / contacts</h2>
+            <button type="submit" class="ghost compact" value="cancel" formnovalidate>Close</button>
+          </div>
+          <p class="modal-lede">Add a company and one or more people (marketing, sales, founder, CEO). Matching company names merge into the existing lead.</p>
+          <div class="modal-grid">
+            <label>Company <input name="company" required placeholder="Paras HMRI Hospital" /></label>
+            <label>Industry <input name="industry" placeholder="Healthcare" /></label>
+            <label>Website <input name="website" placeholder="https://…" /></label>
+            <label>Location <input name="locationHint" placeholder="Boring Road, Patna" /></label>
+          </div>
+          <fieldset class="contact-fieldset">
+            <legend>Primary contact</legend>
+            <div class="modal-grid">
+              <label>Person name <input name="contactName" placeholder="Ravi Kumar" /></label>
+              <label>Designation <input name="title" placeholder="Marketing Head" /></label>
+              <label>Email <input name="email" type="email" placeholder="marketing@brand.com" /></label>
+              <label>Phone <input name="phone" placeholder="+91…" /></label>
+              <label>Role
+                <select name="roleBucket">
+                  <option value="marketing">Marketing</option>
+                  <option value="founder">Founder</option>
+                  <option value="ceo">CEO</option>
+                  <option value="sales">Sales</option>
+                  <option value="managing">Managing / Director</option>
+                </select>
+              </label>
+            </div>
+          </fieldset>
+          <label class="notes-field">Notes <textarea name="notes" rows="2" placeholder="Optional context"></textarea></label>
+          <p class="form-error is-hidden" id="add-lead-error" role="alert"></p>
+          <div class="modal-actions">
+            <button type="submit" class="primary" value="save" id="add-lead-save">Save lead</button>
+          </div>
+        </form>
+      </dialog>
 
       <section class="stats" id="stats" aria-label="Pipeline stats"></section>
       <section class="cron-bar" id="cron-bar" aria-label="Cron services"></section>

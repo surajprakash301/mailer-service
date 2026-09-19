@@ -9,7 +9,8 @@ alter table public."emailer-table"
   add column if not exists sent_at timestamptz,
   add column if not exists generated_at timestamptz,
   add column if not exists updated_at timestamptz default now(),
-  add column if not exists whatsapp jsonb;
+  add column if not exists whatsapp jsonb,
+  add column if not exists employees jsonb default '[]'::jsonb;
 
 update public."emailer-table"
 set email = null

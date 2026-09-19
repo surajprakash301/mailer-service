@@ -1,5 +1,10 @@
 import { generateForLead, sendForLead } from "./campaign.js";
 import { config } from "./config.js";
+import {
+  applyPrimaryFromEmployees,
+  employeesFromLeadFields,
+  mergeEmployees,
+} from "./employees.js";
 import { hasUsableContact, isDeliverableEmail, isEmailShortlist } from "./emailUtils.js";
 import { logError } from "./errors.js";
 import { statusAfterDraft } from "./leadStatus.js";
@@ -75,8 +80,23 @@ export async function runResearchPipeline({
         ? prior.email
         : research.lead.email || "";
   const phoneForSave = research.lead.phone || prior?.phone || "";
+  const employeesForSave = mergeEmployees(
+    employeesFromLeadFields(prior || {}),
+    employeesFromLeadFields({ ...research.lead, email: emailForSave, phone: phoneForSave }),
+  );
+  const primaryLead = applyPrimaryFromEmployees(
+    {
+      ...research.lead,
+      email: emailForSave,
+      phone: phoneForSave,
+    },
+    employeesForSave,
+  );
 
-  if (requireContact && !hasUsableContact({ email: emailForSave, phone: phoneForSave })) {
+  if (
+    requireContact &&
+    !hasUsableContact({ email: primaryLead.email, phone: primaryLead.phone, employees: employeesForSave })
+  ) {
     steps.push(step("discard", true, "No decision-maker email after merge — not saved"));
     return {
       research,
@@ -91,11 +111,14 @@ export async function runResearchPipeline({
   }
 
   let lead = await upsertLead({
-    ...research.lead,
-    email: emailForSave,
-    phone: phoneForSave,
-    emailSource: isDeliverableEmail(emailForSave) ? "public" : research.lead.emailSource || "",
+    ...primaryLead,
+    email: primaryLead.email || emailForSave,
+    phone: primaryLead.phone || phoneForSave,
+    emailSource: isDeliverableEmail(primaryLead.email || emailForSave)
+      ? "public"
+      : research.lead.emailSource || "",
     researchQuery: query,
+    employees: employeesForSave,
   });
 
   const keepSent =
@@ -205,6 +228,7 @@ function mapImportProspect(raw = {}) {
     phone: String(raw.phone || "").trim(),
     priority: String(raw.priority || "").trim(),
     confidence: raw.confidence,
+    employees: Array.isArray(raw.employees) ? raw.employees : [],
   };
 }
 

@@ -1,6 +1,6 @@
 export const RESEARCH_PROMPT = `You extract B2B outreach contacts for Loky Media (Patna DOOH roadside LED).
 
-Goal: find SENIOR decision-makers we can email — Founder, Co-founder, CEO, MD, Owner, Proprietor, Marketing Head, Brand Head, Director — NOT store counters or customer-care desks.
+Goal: find SENIOR decision-makers we can email — Founder, Co-founder, CEO, MD, Owner, Proprietor, Marketing Head, Brand Head, Director, Sales Head — NOT store counters or customer-care desks.
 
 Sources may include website About/Team/Contact pages, DuckDuckGo, LinkedIn public snippets, and Google Maps (use Maps mainly for phone + company name, not as the email source).
 
@@ -13,6 +13,7 @@ Hard rules:
 - title MUST be senior when known: Founder, CEO, MD, Owner, Marketing Head, Brand Manager, Director.
 - Do NOT dump full street addresses into notes or locationHint. locationHint = short corridor only (e.g. "Boring Road, Patna" or "Fraser Road corridor").
 - Prefer Patna operators near: Dakbangla/Fraser Road, Boring Road, Rukanpura, Mithapur, Danapur.
+- Extract EVERY named senior person you can find into employees[] (marketing, sales, founder, CEO, MD). Include email and phone when present. roleBucket must be one of: founder, ceo, marketing, sales, managing.
 
 Return JSON:
 {
@@ -25,7 +26,16 @@ Return JSON:
   "email": "",
   "phone": "",
   "nearestScreen": "dakbangla_fraser|boring_road|rukanpura|mithapur|danapur|",
-  "notes": "2-3 sentences: who the decision-maker is, what the company sells, why Durga Puja LED in Patna is relevant. No full postal address."
+  "notes": "2-3 sentences: who the decision-makers are, what the company sells, why Durga Puja LED in Patna is relevant. No full postal address.",
+  "employees": [
+    {
+      "name": "",
+      "title": "",
+      "email": "",
+      "phone": "",
+      "roleBucket": "founder|ceo|marketing|sales|managing"
+    }
+  ]
 }`;
 
 function greetingName(contactName) {

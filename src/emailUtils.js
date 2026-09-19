@@ -75,7 +75,9 @@ export function isValidPhone(phone) {
  * Phone is optional (stored as empty/null when unknown).
  */
 export function hasUsableContact(lead = {}) {
-  return isDecisionMakerEmail(lead.email);
+  if (isDecisionMakerEmail(lead.email)) return true;
+  const employees = Array.isArray(lead.employees) ? lead.employees : [];
+  return employees.some((e) => isDecisionMakerEmail(e?.email));
 }
 
 /** Resend shortlist — decision-maker style public inboxes only. */

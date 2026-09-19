@@ -1,4 +1,5 @@
 import { config } from "./config.js";
+import { mergeEmployees, parseEmployeesField } from "./employees.js";
 import { logError } from "./errors.js";
 import { getSupabase } from "./supabase.js";
 
@@ -61,6 +62,7 @@ export function rowToLead(row) {
     operator: row.operator || "",
     network: row.network || "",
     whatsapp: row.whatsapp ?? null,
+    employees: parseEmployeesField(row.employees),
     status: row.status || "pending",
     subject: row.subject || "",
     body: row.body || "",
@@ -119,6 +121,9 @@ export function leadToRow(lead = {}, { forInsert = false } = {}) {
       row[to] = lead[from];
     }
   }
+  if (Object.prototype.hasOwnProperty.call(lead, "employees")) {
+    row.employees = Array.isArray(lead.employees) ? lead.employees : parseEmployeesField(lead.employees);
+  }
   if (Object.prototype.hasOwnProperty.call(lead, "sources")) {
     row.sources = sourcesForDb(lead.sources);
   }
@@ -173,6 +178,7 @@ export async function createLead(fields) {
     operator: fields.operator || "Suraj Prakash",
     network: fields.network || "Loky Media Patna DOOH",
     whatsapp: null,
+    employees: Array.isArray(fields.employees) ? fields.employees : [],
     status: "pending",
     subject: "",
     body: "",
@@ -242,6 +248,9 @@ export async function upsertLead(fields, input = {}) {
           : input.emailSource || existing.email_source || fields.emailSource || "",
       sources: Array.isArray(input.sources) ? input.sources : parseSources(existing.sources),
       phone: fields.phone || existing.phone || "",
+      employees: Object.prototype.hasOwnProperty.call(fields, "employees")
+        ? mergeEmployees(parseEmployeesField(existing.employees), fields.employees)
+        : parseEmployeesField(existing.employees),
       updatedAt: stamp,
     };
     const { data, error } = await getSupabase()
@@ -269,6 +278,7 @@ export async function upsertLead(fields, input = {}) {
     operator: input.operator || fields.operator || "Suraj Prakash",
     network: input.network || fields.network || "Loky Media Patna DOOH",
     whatsapp: null,
+    employees: Array.isArray(fields.employees) ? fields.employees : [],
     status: "pending",
     subject: "",
     body: "",
@@ -311,6 +321,7 @@ export async function updateLead(id, patch) {
     "operator",
     "network",
     "whatsapp",
+    "employees",
     "status",
     "subject",
     "body",

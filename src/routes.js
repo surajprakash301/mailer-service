@@ -2,6 +2,12 @@ import { Router } from "express";
 import { generateForLead, runDailyCampaign, sendForLead, sendWhatsAppForLead } from "./campaign.js";
 import { buildLokyEmailHtml, LOKY_BRAND } from "./brand.js";
 import { config } from "./config.js";
+import {
+  applyPrimaryFromEmployees,
+  employeesFromLeadFields,
+  mergeEmployees,
+  normalizeEmployee,
+} from "./employees.js";
 import { logError } from "./errors.js";
 import { hasLiveOpenAI } from "./openaiLive.js";
 import { hasLiveGemini, geminiStatus } from "./gemini.js";
@@ -209,8 +215,83 @@ router.get("/leads/:id/email", asyncRoute(async (req, res) => {
 }));
 
 router.post("/leads", asyncRoute(async (req, res) => {
-  const lead = await createLead(req.body);
-  res.status(201).json({ lead });
+  const body = req.body || {};
+  const company = String(body.company || "").trim();
+  if (!company) {
+    return res.status(400).json({ error: "Company name is required" });
+  }
+
+  const incomingEmployees = Array.isArray(body.employees) ? body.employees : [];
+  if (body.contactName || body.email || body.phone) {
+    incomingEmployees.unshift({
+      name: body.contactName,
+      title: body.title,
+      email: body.email,
+      phone: body.phone,
+      roleBucket: body.roleBucket || "",
+      source: "manual",
+    });
+  }
+  const employees = mergeEmployees(
+    incomingEmployees.map((e) => ({ ...e, source: e.source || "manual" })),
+    [],
+  );
+  if (!employees.length) {
+    return res.status(400).json({ error: "Add at least one contact with email or phone" });
+  }
+
+  const withPrimary = applyPrimaryFromEmployees(
+    {
+      company,
+      contactName: body.contactName,
+      email: body.email,
+      title: body.title,
+      industry: body.industry,
+      notes: body.notes,
+      locationHint: body.locationHint,
+      website: body.website,
+      phone: body.phone,
+      emailSource: body.email ? "manual" : "",
+    },
+    employees,
+  );
+
+  const all = await listLeads();
+  const existing = all.find(
+    (l) => String(l.company || "").toLowerCase() === company.toLowerCase(),
+  );
+  if (existing) {
+    const merged = mergeEmployees(employeesFromLeadFields(existing), employees);
+    const next = applyPrimaryFromEmployees(existing, merged);
+    const lead = await updateLead(existing.id, {
+      ...withPrimary,
+      company,
+      employees: merged,
+      contactName: next.contactName,
+      title: next.title,
+      email: next.email,
+      phone: next.phone,
+      industry: body.industry || existing.industry,
+      notes: body.notes || existing.notes,
+      locationHint: body.locationHint || existing.locationHint,
+      website: body.website || existing.website,
+      emailSource: next.email
+        ? existing.emailSource === "public"
+          ? "public"
+          : "manual"
+        : existing.emailSource || "",
+    });
+    return res.status(200).json({ lead, merged: true });
+  }
+
+  const lead = await createLead({
+    ...body,
+    ...withPrimary,
+    company,
+    employees,
+    emailSource: withPrimary.email ? body.emailSource || "manual" : "",
+  });
+  res.status(201).json({ lead, merged: false });
 }));
 
 router.get("/leads/:id", asyncRoute(async (req, res) => {
@@ -223,6 +304,33 @@ router.patch("/leads/:id", asyncRoute(async (req, res) => {
   const lead = await updateLead(req.params.id, req.body || {});
   if (!lead) return notFound(res);
   res.json({ lead });
+}));
+
+/** Add one contact person to a company lead (manual operator data). */
+router.post("/leads/:id/employees", asyncRoute(async (req, res) => {
+  const current = await getLead(req.params.id);
+  if (!current) return notFound(res);
+
+  const emp = normalizeEmployee({ ...(req.body || {}), source: "manual" });
+  if (!emp) {
+    return res.status(400).json({ error: "Provide at least a name, email, or phone" });
+  }
+
+  const employees = mergeEmployees(employeesFromLeadFields(current), [emp]);
+  const withPrimary = applyPrimaryFromEmployees(current, employees);
+  const lead = await updateLead(current.id, {
+    employees,
+    contactName: withPrimary.contactName,
+    title: withPrimary.title,
+    email: withPrimary.email,
+    phone: withPrimary.phone,
+    emailSource: withPrimary.email
+      ? current.emailSource === "public"
+        ? "public"
+        : current.emailSource || "manual"
+      : current.emailSource || "",
+  });
+  res.status(201).json({ lead, employee: emp });
 }));
 
 router.delete("/leads/:id", asyncRoute(async (req, res) => {

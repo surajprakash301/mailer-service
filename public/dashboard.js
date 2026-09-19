@@ -163,6 +163,8 @@ function matchesDate(lead) {
 
 function matchesSearch(lead, q) {
   if (!q) return true;
+  const empBits = (Array.isArray(lead.employees) ? lead.employees : [])
+    .flatMap((e) => [e.name, e.title, e.email, e.phone, e.roleBucket]);
   const hay = [
     lead.company,
     lead.contactName,
@@ -177,6 +179,7 @@ function matchesSearch(lead, q) {
     lead.notes,
     lead.subject,
     lead.status,
+    ...empBits,
   ]
     .join(" ")
     .toLowerCase();
@@ -279,15 +282,101 @@ function whatsappLabel(wa) {
   return "";
 }
 
+function employeeRoster(lead) {
+  const list = Array.isArray(lead.employees) ? lead.employees.filter(Boolean) : [];
+  if (list.length) return list;
+  if (lead.contactName || lead.email || lead.phone) {
+    return [
+      {
+        name: lead.contactName || "",
+        title: lead.title || "",
+        email: lead.email || "",
+        phone: lead.phone || "",
+        roleBucket: "",
+        source: "primary",
+      },
+    ];
+  }
+  return [];
+}
+
+function employeesTableMarkup(lead) {
+  const rows = employeeRoster(lead);
+  const body = rows.length
+    ? rows
+        .map((emp) => {
+          const phone = formatPhone(emp.phone);
+          const emailCell = emp.email
+            ? `<a href="mailto:${escapeHtml(emp.email)}" data-act="external">${escapeHtml(emp.email)}</a>`
+            : "—";
+          const phoneCell = phone
+            ? `<a href="tel:${escapeHtml(phone)}" data-act="external">${escapeHtml(phone)}</a>`
+            : "—";
+          const role = emp.roleBucket
+            ? `<span class="role-pill">${escapeHtml(emp.roleBucket)}</span>`
+            : "—";
+          return `<tr>
+            <td>${escapeHtml(emp.name || "—")}</td>
+            <td>${escapeHtml(emp.title || "—")}</td>
+            <td>${role}</td>
+            <td>${emailCell}</td>
+            <td>${phoneCell}</td>
+          </tr>`;
+        })
+        .join("")
+    : `<tr><td colspan="5">No contacts yet — add one below.</td></tr>`;
+
+  return `
+    <div class="employees-block" data-employees-for="${escapeHtml(lead.id)}">
+      <h4>People at this company (${rows.length})</h4>
+      <div class="employees-table-wrap">
+        <table class="employees-table">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Designation</th>
+              <th>Role</th>
+              <th>Email</th>
+              <th>Phone</th>
+            </tr>
+          </thead>
+          <tbody>${body}</tbody>
+        </table>
+      </div>
+      <form class="add-contact-form" data-act="add-contact" data-lead-id="${escapeHtml(lead.id)}">
+        <p class="eyebrow" style="margin:0">Add another person</p>
+        <div class="modal-grid">
+          <label>Name <input name="name" placeholder="Person name" /></label>
+          <label>Designation <input name="title" placeholder="Marketing Head" /></label>
+          <label>Email <input name="email" type="email" placeholder="name@brand.com" /></label>
+          <label>Phone <input name="phone" placeholder="+91…" /></label>
+          <label>Role
+            <select name="roleBucket">
+              <option value="marketing">Marketing</option>
+              <option value="founder">Founder</option>
+              <option value="ceo">CEO</option>
+              <option value="sales">Sales</option>
+              <option value="managing">Managing / Director</option>
+            </select>
+          </label>
+        </div>
+        <div class="row-actions">
+          <button type="submit" class="primary compact">Add contact</button>
+        </div>
+        <p class="form-error is-hidden" data-contact-error></p>
+      </form>
+    </div>`;
+}
+
 function leadDetailsMarkup(lead) {
   const phone = formatPhone(lead.phone);
   const wa = whatsappLabel(lead.whatsapp);
   const sources = Array.isArray(lead.sources) ? lead.sources.filter(Boolean) : [];
   const rows = [
-    ["Contact", lead.contactName],
-    ["Title", lead.title],
-    ["Email", lead.email],
-    ["Phone", phone],
+    ["Primary contact", lead.contactName],
+    ["Primary title", lead.title],
+    ["Primary email", lead.email],
+    ["Primary phone", phone],
     ["Website", lead.website],
     ["Industry", lead.industry],
     ["Location", lead.locationHint],
@@ -309,9 +398,9 @@ function leadDetailsMarkup(lead) {
   const rowHtml = rows
     .map(([label, value]) => {
       let display = escapeHtml(value);
-      if (label === "Phone" && phone) {
+      if (label === "Primary phone" && phone) {
         display = `<a href="tel:${escapeHtml(phone)}" data-act="external">${escapeHtml(phone)}</a>`;
-      } else if (label === "Email" && lead.email) {
+      } else if (label === "Primary email" && lead.email) {
         display = `<a href="mailto:${escapeHtml(lead.email)}" data-act="external">${escapeHtml(lead.email)}</a>`;
       } else if (label === "Website" && lead.website) {
         const href = /^https?:\/\//i.test(lead.website) ? lead.website : `https://${lead.website}`;
@@ -332,7 +421,7 @@ function leadDetailsMarkup(lead) {
         .join("<br>")}</strong></div>`
     : "";
 
-  return `<div class="lead-details">${rowHtml}${sourceHtml}</div>`;
+  return `<div class="lead-details">${rowHtml}${sourceHtml}${employeesTableMarkup(lead)}</div>`;
 }
 
 function previewMarkup(lead) {
@@ -429,12 +518,15 @@ function renderList() {
       const selected = lead.id === selectedId;
       const label = statusLabel(lead);
       const klass = statusClass(lead);
+      const people = employeeRoster(lead);
+      const peopleCount = people.length;
       const titleBit = lead.title ? ` · ${escapeHtml(lead.title)}` : "";
       const metaBits = [
         lead.industry || null,
         lead.locationHint || null,
         lead.nearestScreen ? `Screen: ${lead.nearestScreen}` : null,
         lead.priority || null,
+        peopleCount > 1 ? `${peopleCount} people` : null,
       ].filter(Boolean);
       return `
         <article class="lead-block${selected ? " is-open" : ""}" data-lead-id="${escapeHtml(lead.id)}">
@@ -449,6 +541,14 @@ function renderList() {
               <span class="${phone ? "has-phone" : "no-phone"}">${phone ? escapeHtml(phone) : "no phone"}</span>
               ${lead.website ? `<span class="lead-site">${escapeHtml(lead.website.replace(/^https?:\/\//i, ""))}</span>` : ""}
             </div>
+            ${
+              peopleCount > 1
+                ? `<div class="lead-sub">${people
+                    .slice(0, 4)
+                    .map((p) => escapeHtml([p.name || p.email || p.phone, p.roleBucket].filter(Boolean).join(" · ")))
+                    .join(" · ")}${peopleCount > 4 ? ` · +${peopleCount - 4} more` : ""}</div>`
+                : ""
+            }
             ${metaBits.length ? `<div class="lead-sub">${escapeHtml(metaBits.join(" · "))}</div>` : ""}
             ${lead.buySignals ? `<div class="lead-sub lead-signals">${escapeHtml(lead.buySignals)}</div>` : ""}
             <div class="chips">
@@ -567,6 +667,110 @@ leadsEl.addEventListener("click", (event) => {
   const button = event.target.closest(".lead");
   if (!button) return;
   selectLead(button.dataset.id);
+});
+
+leadsEl.addEventListener("submit", async (event) => {
+  const form = event.target.closest("form[data-act='add-contact']");
+  if (!form) return;
+  event.preventDefault();
+  event.stopPropagation();
+  const leadId = form.dataset.leadId;
+  const errEl = form.querySelector("[data-contact-error]");
+  const fd = new FormData(form);
+  const payload = {
+    name: String(fd.get("name") || "").trim(),
+    title: String(fd.get("title") || "").trim(),
+    email: String(fd.get("email") || "").trim(),
+    phone: String(fd.get("phone") || "").trim(),
+    roleBucket: String(fd.get("roleBucket") || "").trim(),
+  };
+  if (!payload.name && !payload.email && !payload.phone) {
+    if (errEl) {
+      errEl.textContent = "Enter a name, email, or phone";
+      errEl.classList.remove("is-hidden");
+    }
+    return;
+  }
+  try {
+    if (errEl) errEl.classList.add("is-hidden");
+    const { lead } = await apiPost(`/leads/${encodeURIComponent(leadId)}/employees`, payload);
+    const idx = allLeads.findIndex((l) => l.id === leadId || l.id === lead.id);
+    if (idx >= 0) allLeads[idx] = lead;
+    else allLeads.unshift(lead);
+    selectedId = lead.id;
+    renderList();
+  } catch (err) {
+    if (errEl) {
+      errEl.textContent = err.message;
+      errEl.classList.remove("is-hidden");
+    }
+  }
+});
+
+const addLeadModal = document.getElementById("add-lead-modal");
+const addLeadForm = document.getElementById("add-lead-form");
+const addLeadError = document.getElementById("add-lead-error");
+const btnAddLead = document.getElementById("btn-add-lead");
+
+async function apiPost(path, body) {
+  const res = await fetch(`/api${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || res.statusText);
+  return data;
+}
+
+btnAddLead?.addEventListener("click", () => {
+  addLeadError?.classList.add("is-hidden");
+  addLeadForm?.reset();
+  addLeadModal?.showModal();
+});
+
+addLeadForm?.addEventListener("submit", async (event) => {
+  const submitter = event.submitter;
+  if (submitter?.value === "cancel") return;
+  event.preventDefault();
+  const fd = new FormData(addLeadForm);
+  const payload = {
+    company: String(fd.get("company") || "").trim(),
+    industry: String(fd.get("industry") || "").trim(),
+    website: String(fd.get("website") || "").trim(),
+    locationHint: String(fd.get("locationHint") || "").trim(),
+    contactName: String(fd.get("contactName") || "").trim(),
+    title: String(fd.get("title") || "").trim(),
+    email: String(fd.get("email") || "").trim(),
+    phone: String(fd.get("phone") || "").trim(),
+    roleBucket: String(fd.get("roleBucket") || "").trim(),
+    notes: String(fd.get("notes") || "").trim(),
+  };
+  if (!payload.company) {
+    addLeadError.textContent = "Company is required";
+    addLeadError.classList.remove("is-hidden");
+    return;
+  }
+  if (!payload.email && !payload.phone) {
+    addLeadError.textContent = "Add an email or phone for the contact";
+    addLeadError.classList.remove("is-hidden");
+    return;
+  }
+  try {
+    addLeadError.classList.add("is-hidden");
+    const { lead } = await apiPost("/leads", payload);
+    const idx = allLeads.findIndex(
+      (l) => l.id === lead.id || String(l.company || "").toLowerCase() === String(lead.company || "").toLowerCase(),
+    );
+    if (idx >= 0) allLeads[idx] = lead;
+    else allLeads.unshift(lead);
+    selectedId = lead.id;
+    addLeadModal.close();
+    renderList();
+  } catch (err) {
+    addLeadError.textContent = err.message;
+    addLeadError.classList.remove("is-hidden");
+  }
 });
 
 refresh().catch((err) => {

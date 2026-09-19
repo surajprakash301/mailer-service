@@ -1,6 +1,10 @@
 import OpenAI from "openai";
 import { config } from "./config.js";
 import { hasUsableContact, isDeliverableEmail, normalizePhone, rankEmailForOutreach } from "./emailUtils.js";
+import {
+  applyPrimaryFromEmployees,
+  mergeEmployees,
+} from "./employees.js";
 import { logError } from "./errors.js";
 import { fenceLabels, pickFences } from "./geo.js";
 import { geminiJson, geminiAvailable } from "./gemini.js";
@@ -516,6 +520,26 @@ function pickPhone(extracted, pages, mapsNotes = []) {
   return fromExtracted || fromMaps[0] || fromPages[0] || "";
 }
 
+function collectPageEmployeeStubs(pages, website) {
+  const siteHost = hostOf(website || pages[0]?.url || "");
+  const stubs = [];
+  for (const page of pages) {
+    if (SKIP_HOST.test(hostOf(page.url))) continue;
+    for (const email of page.emails || []) {
+      if (!isDeliverableEmail(email)) continue;
+      if (siteHost && !email.endsWith(`@${siteHost}`) && rankEmailForOutreach(email) <= 0) continue;
+      stubs.push({
+        email,
+        name: "",
+        title: DECISION_HINT_FROM_EMAIL(email),
+        phone: "",
+        source: "page",
+      });
+    }
+  }
+  return stubs;
+}
+
 function mergeLead(query, extracted, pages, catalog, mapsNotes = []) {
   const base = catalog || {};
   const company = extracted?.company || base.company || query;
@@ -549,35 +573,57 @@ function mergeLead(query, extracted, pages, catalog, mapsNotes = []) {
     (roleOnly ? rawName : "") ||
     (DECISION_HINT_FROM_EMAIL(email) || "Decision maker");
 
-  return {
-    company: String(company).trim(),
-    contactName,
-    title: String(title).trim(),
-    industry: String(extracted?.industry || base.industry || "").trim(),
-    locationHint: String(
-      extracted?.locationHint ||
-        mapsHit?.locationHint ||
-        base.locationHint ||
-        "Patna corridor",
-    )
-      .replace(/\d{1,5}\s+[A-Za-z].{10,}/g, "") // strip long street/address blobs
-      .trim()
-      .slice(0, 80),
-    nearestScreen: String(extracted?.nearestScreen || mapsHit?.nearestScreen || "").trim(),
-    notes: String(
-      extracted?.notes || `Senior contact research for Patna DOOH: ${query}`,
-    )
-      .trim()
-      .slice(0, 500),
-    website,
-    email,
-    phone, // empty string when unknown (dashboard shows as no phone)
-    emailSource,
-    sources: [
-      ...pages.map((p) => p.url),
-      ...(mapsNotes || []).map((m) => m.mapsUrl).filter(Boolean),
-    ].filter(Boolean),
-  };
+  const fromLlm = Array.isArray(extracted?.employees) ? extracted.employees : [];
+  const employees = mergeEmployees(
+    [
+      {
+        name: contactName,
+        title,
+        email,
+        phone,
+        source: "research",
+      },
+      ...fromLlm.map((row) => ({ ...row, source: "research" })),
+      ...collectPageEmployeeStubs(pages, website),
+    ],
+    [],
+  );
+
+  const withPrimary = applyPrimaryFromEmployees(
+    {
+      company: String(company).trim(),
+      contactName,
+      title: String(title).trim(),
+      industry: String(extracted?.industry || base.industry || "").trim(),
+      locationHint: String(
+        extracted?.locationHint ||
+          mapsHit?.locationHint ||
+          base.locationHint ||
+          "Patna corridor",
+      )
+        .replace(/\d{1,5}\s+[A-Za-z].{10,}/g, "") // strip long street/address blobs
+        .trim()
+        .slice(0, 80),
+      nearestScreen: String(extracted?.nearestScreen || mapsHit?.nearestScreen || "").trim(),
+      notes: String(
+        extracted?.notes || `Senior contact research for Patna DOOH: ${query}`,
+      )
+        .trim()
+        .slice(0, 500),
+      website,
+      email,
+      phone, // empty string when unknown (dashboard shows as no phone)
+      emailSource,
+      sources: [
+        ...pages.map((p) => p.url),
+        ...(mapsNotes || []).map((m) => m.mapsUrl).filter(Boolean),
+      ].filter(Boolean),
+      employees,
+    },
+    employees,
+  );
+
+  return withPrimary;
 }
 
 function DECISION_HINT_FROM_EMAIL(email) {

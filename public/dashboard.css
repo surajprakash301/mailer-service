@@ -99,6 +99,216 @@ h1 {
   color: #fff;
 }
 
+.nav-btn {
+  appearance: none;
+  cursor: pointer;
+  text-decoration: none;
+  color: #fff;
+  border: 1px solid var(--coral);
+  background: var(--coral);
+  padding: 8px 14px;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  font-family: inherit;
+}
+
+.nav-btn:hover { filter: brightness(1.05); }
+
+.modal {
+  border: none;
+  border-radius: 18px;
+  padding: 0;
+  max-width: min(640px, calc(100vw - 28px));
+  width: 100%;
+  background: transparent;
+  box-shadow: none;
+}
+
+.modal::backdrop {
+  background: rgba(17, 24, 39, 0.45);
+  backdrop-filter: blur(4px);
+}
+
+.modal-card {
+  margin: 0;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 20px 22px 18px;
+  box-shadow: var(--shadow);
+  display: grid;
+  gap: 14px;
+}
+
+.modal-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.modal-head h2 {
+  margin: 0;
+  font-family: var(--display);
+  font-size: 1.25rem;
+}
+
+.modal-lede {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.modal-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 12px;
+}
+
+.modal-card label,
+.notes-field {
+  display: grid;
+  gap: 6px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.modal-card input,
+.modal-card select,
+.modal-card textarea {
+  font: inherit;
+  text-transform: none;
+  letter-spacing: normal;
+  font-weight: 500;
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: #fafbfc;
+}
+
+.contact-fieldset {
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px;
+}
+
+.contact-fieldset legend {
+  padding: 0 6px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.primary {
+  appearance: none;
+  border: none;
+  background: var(--coral);
+  color: #fff;
+  font: inherit;
+  font-weight: 700;
+  padding: 10px 16px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.primary.compact {
+  padding: 8px 12px;
+  font-size: 0.85rem;
+}
+
+.form-error {
+  margin: 0;
+  color: #b91c1c;
+  font-size: 0.85rem;
+}
+
+.form-error.is-hidden { display: none; }
+
+.employees-block {
+  margin-top: 14px;
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+
+.employees-block h4 {
+  margin: 0 0 8px;
+  font-family: var(--display);
+  font-size: 0.95rem;
+}
+
+.employees-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fafbfc;
+}
+
+.employees-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.employees-table th,
+.employees-table td {
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+
+.employees-table th {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  background: rgba(243, 245, 248, 0.9);
+}
+
+.employees-table tr:last-child td { border-bottom: none; }
+
+.employees-table a { color: var(--coral); font-weight: 600; }
+
+.role-pill {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(254, 101, 69, 0.12);
+  color: #9a3412;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: capitalize;
+}
+
+.add-contact-form {
+  margin-top: 12px;
+  display: grid;
+  gap: 8px;
+}
+
+.add-contact-form .modal-grid { gap: 8px; }
+
+.add-contact-form .row-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+@media (max-width: 640px) {
+  .modal-grid { grid-template-columns: 1fr; }
+}
+
 .stats {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));

@@ -240,9 +240,13 @@ export async function recordCronRun(job, summary = {}) {
 export function normalizeLeadInput(body = {}) {
   const email = String(body.email || "").trim().toLowerCase();
   const phone = String(body.phone || "").trim();
+  const employees = Array.isArray(body.employees) ? body.employees : [];
   const hasEmail = Boolean(email && email.includes("@"));
   const hasPhone = Boolean(phone);
-  if (!hasEmail && !hasPhone) {
+  const hasEmployeeContact = employees.some(
+    (e) => (e?.email && String(e.email).includes("@")) || String(e?.phone || "").trim(),
+  );
+  if (!hasEmail && !hasPhone && !hasEmployeeContact) {
     throw Object.assign(new Error("A valid email or phone is required"), { status: 400 });
   }
 
@@ -257,6 +261,7 @@ export function normalizeLeadInput(body = {}) {
     website: String(body.website || "").trim(),
     researchQuery: String(body.researchQuery || "").trim(),
     phone,
+    employees,
   };
 }
 
@@ -286,10 +291,13 @@ export async function createLead(input) {
       queryWave: input.queryWave || "",
       operator: input.operator || "",
       network: input.network || "",
+      employees: fields.employees || [],
     });
   }
   return mutate((db) => {
-    const existing = db.leads.find((lead) => lead.email === fields.email);
+    const existing = fields.email
+      ? db.leads.find((lead) => lead.email === fields.email)
+      : null;
     if (existing) {
       throw Object.assign(new Error("A lead with this email already exists"), { status: 409 });
     }
@@ -299,9 +307,10 @@ export async function createLead(input) {
       website: fields.website || "",
       researchQuery: fields.researchQuery || "",
       phone: fields.phone || "",
-      emailSource: "",
-      sources: [],
+      emailSource: input.emailSource || "",
+      sources: Array.isArray(input.sources) ? input.sources : [],
       whatsapp: null,
+      employees: Array.isArray(fields.employees) ? fields.employees : [],
       status: "pending",
       subject: "",
       body: "",
@@ -342,6 +351,7 @@ export async function upsertLead(input) {
       }
       if (Array.isArray(input.sources)) existing.sources = input.sources;
       if (fields.phone) existing.phone = fields.phone;
+      if (Array.isArray(fields.employees)) existing.employees = fields.employees;
       existing.updatedAt = nowIso();
       return existing;
     }
@@ -354,6 +364,7 @@ export async function upsertLead(input) {
       emailSource: input.emailSource || "",
       sources: Array.isArray(input.sources) ? input.sources : [],
       whatsapp: null,
+      employees: Array.isArray(fields.employees) ? fields.employees : [],
       status: "pending",
       subject: "",
       body: "",
@@ -388,6 +399,7 @@ export async function updateLead(id, patch) {
       "emailSource",
       "sources",
       "whatsapp",
+      "employees",
       "status",
       "subject",
       "body",
