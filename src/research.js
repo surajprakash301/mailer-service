@@ -1,6 +1,6 @@
 import OpenAI from "openai";
 import { config } from "./config.js";
-import { hasUsableContact, isDeliverableEmail, normalizePhone } from "./emailUtils.js";
+import { hasUsableContact, isDeliverableEmail, normalizePhone, rankEmailForOutreach } from "./emailUtils.js";
 import { logError } from "./errors.js";
 import { fenceLabels, pickFences } from "./geo.js";
 import { geminiJson, geminiAvailable } from "./gemini.js";
@@ -344,9 +344,9 @@ async function collectPages(query, website) {
   }
 
   const searchQueries = [
-    `${query} Patna official website contact email phone`,
-    `${query} ${fences[0]?.label || "Fraser Road"} Patna phone email`,
-    `${query} Patna near ${fences[1]?.label || "Boring Road"} contact`,
+    `${query} Patna founder OR CEO OR owner OR "marketing head" email`,
+    `${query} ${fences[0]?.label || "Fraser Road"} Patna "founder" OR "managing director" contact email -care -support`,
+    `${query} Patna team OR about "email" site:.in`,
   ];
 
   for (const sq of searchQueries) {
@@ -500,9 +500,13 @@ function pickPublicEmail(extracted, pages, website) {
     return p.emails;
   });
   const extractedEmail = extracted?.email ? extractEmails(extracted.email)[0] : "";
-  const ranked = [...(extractedEmail ? [extractedEmail] : []), ...fromPages].filter(Boolean);
-  const sameHost = ranked.find((email) => siteHost && email.endsWith(`@${siteHost}`));
-  return sameHost || ranked.find((email) => !SKIP_HOST.test(email.split("@")[1] || "")) || "";
+  const ranked = [...(extractedEmail ? [extractedEmail] : []), ...fromPages]
+    .filter(Boolean)
+    .filter((email) => isDeliverableEmail(email))
+    .sort((a, b) => rankEmailForOutreach(b) - rankEmailForOutreach(a));
+  const sameHost = ranked.find((email) => siteHost && email.endsWith(`@${siteHost}`) && rankEmailForOutreach(email) > 0);
+  const best = sameHost || ranked.find((email) => rankEmailForOutreach(email) > 0) || "";
+  return best;
 }
 
 function pickPhone(extracted, pages, mapsNotes = []) {
@@ -598,13 +602,14 @@ async function geminiDiscover(query, limit) {
   try {
     const parsed = await geminiJson({
       system: `You suggest real local B2B operators in Patna, Bihar for DOOH cold outreach near Loky LED corridors (${fenceLabels()}).
-Return JSON only: {"prospects":[{"company":"","website":"","query":"","corridor":""}]}
+Return JSON only: {"prospects":[{"company":"","website":"","query":"","corridor":"","decisionMakerHint":""}]}
 Rules:
-- Local operators only, geofenced to those corridors (no national HQ-only brands without a Patna store).
-- Prefer businesses likely to publish a public business email OR a Google Maps phone listing.
-- website may be empty; query should help find contact email/phone + Maps listing.
-- corridor must be one of: dakbangla_fraser, boring_road, rukanpura, mithapur, danapur.`,
-      user: `Niche: ${query}\nReturn up to ${limit} prospects with diverse corridors.`,
+- Local operators only, geofenced to those corridors.
+- Prefer companies where we can find a Founder / CEO / Owner / MD / Marketing Head email (NOT care@, support@, customercare@, info@).
+- query should hunt LinkedIn / About / Team / "founder email" / "marketing head email" for that Patna company.
+- decisionMakerHint: role to look for (Founder, CEO, Owner, Marketing Head).
+- corridor: dakbangla_fraser|boring_road|rukanpura|mithapur|danapur.`,
+      user: `Niche: ${query}\nReturn up to ${limit} prospects with diverse corridors. Avoid national customer-care-only brands.`,
       temperature: 0.35,
     });
     const list = Array.isArray(parsed?.prospects) ? parsed.prospects : [];
@@ -612,7 +617,10 @@ Rules:
       .map((row) => ({
         company: String(row?.company || "").trim().slice(0, 80),
         website: String(row?.website || "").trim(),
-        query: String(row?.query || row?.company || query).trim(),
+        query: String(
+          row?.query ||
+            `${row?.company || query} Patna founder OR CEO OR owner OR "marketing head" email contact -care -support -customercare`,
+        ).trim(),
         corridor: String(row?.corridor || "").trim(),
       }))
       .filter((row) => row.company);
@@ -665,9 +673,9 @@ export async function discoverQueries(query, limit = 3, { excludeCompanies = [] 
 
   // 3) Widened web SERP
   const webQueries = [
-    `${query} Patna contact email phone`,
-    `${query} ${fences[0]?.label || "Fraser Road"} Patna showroom email`,
-    `${query} Patna official website "email" OR "contact"`,
+    `${query} Patna founder OR CEO OR owner email -customercare -support`,
+    `${query} ${fences[0]?.label || "Fraser Road"} Patna marketing head email`,
+    `${query} Patna "managing director" OR proprietor contact email`,
   ];
   for (const wq of webQueries) {
     if (unique.length >= limit) break;

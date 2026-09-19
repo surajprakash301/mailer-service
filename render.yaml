@@ -14,13 +14,17 @@ services:
       - key: DISABLE_INTERNAL_CRON
         value: "true"
       - key: GATHER_INDUSTRIES
-        value: "16"
+        value: "7"
       - key: GATHER_COMPANIES_PER_INDUSTRY
-        value: "4"
+        value: "6"
       - key: GATHER_MIN_LEADS
-        value: "5"
+        value: "14"
       - key: GATHER_MIN_SENDABLE
-        value: "5"
+        value: "14"
+      - key: GATHER_PER_INDUSTRY_MIN
+        value: "3"
+      - key: GATHER_FOCUS_INDUSTRIES
+        value: "Real Estate,Healthcare,Startups,FMCG,Jewellery,Automobile,Fashion"
       - key: SEND_MIN_EMAILS
         value: "5"
       - key: RE_ENGAGE_AFTER_DAYS

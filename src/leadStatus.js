@@ -1,19 +1,19 @@
-import { isDeliverableEmail } from "./emailUtils.js";
+import { isDecisionMakerEmail } from "./emailUtils.js";
 
-/** Drafted + real inbox — waiting for the next send cron */
+/** Drafted + decision-maker inbox — waiting for the next send cron */
 export const STATUS_TO_SEND = "to_send";
-/** Drafted but mock/no public email — not Resend-deliverable yet */
+/** Drafted but not email-shortlistable yet (phone-only / still researching) */
 export const STATUS_READY = "ready";
 export const STATUS_SENT = "sent";
 export const STATUS_FAILED = "failed";
 
 /**
  * Pick the outbound status after draft is ready.
- * Deliverable public emails become to_send; mock stays ready.
+ * Decision-maker emails become to_send; generic care@ stays ready/not shortlisted.
  */
 export function statusAfterDraft(lead, { forceReady = false } = {}) {
   if (forceReady) return STATUS_READY;
-  if (lead?.subject && lead?.body && isDeliverableEmail(lead.email)) {
+  if (lead?.subject && lead?.body && isDecisionMakerEmail(lead.email)) {
     return STATUS_TO_SEND;
   }
   if (lead?.subject && lead?.body) return STATUS_READY;
@@ -23,12 +23,11 @@ export function statusAfterDraft(lead, { forceReady = false } = {}) {
 /** True if this lead is in the follow / send queue */
 export function isToBeSent(lead) {
   if (!lead || lead.status === STATUS_SENT) return false;
-  if (lead.status === STATUS_TO_SEND) return true;
-  // Back-compat: older rows still marked ready with a public inbox
+  if (lead.status === STATUS_TO_SEND && isDecisionMakerEmail(lead.email)) return true;
   return (
     lead.status === STATUS_READY &&
     Boolean(lead.subject && lead.body) &&
-    isDeliverableEmail(lead.email)
+    isDecisionMakerEmail(lead.email)
   );
 }
 

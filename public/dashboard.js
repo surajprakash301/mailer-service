@@ -13,9 +13,22 @@ const TZ = "Asia/Kolkata";
 
 let allLeads = [];
 let filter = "all";
+let industryFilter = "all";
 let selectedId = null;
 let showPlain = false;
 let emailUrl = "";
+
+const FOCUS_INDUSTRIES = [
+  "Real Estate",
+  "Healthcare",
+  "Startups",
+  "FMCG",
+  "Jewellery",
+  "Automobile",
+  "Fashion",
+];
+
+const industryFiltersEl = document.getElementById("industry-filters");
 
 async function api(path) {
   const res = await fetch(`/api${path}`);
@@ -107,6 +120,20 @@ function statusClass(lead) {
   return lead.status || "";
 }
 
+function normalizeIndustry(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "Other";
+  const lower = raw.toLowerCase();
+  if (/real\s*estate|property|housing|developer/.test(lower)) return "Real Estate";
+  if (/health|hospital|clinic|pharma/.test(lower)) return "Healthcare";
+  if (/start\s*up|startup|consumer app/.test(lower)) return "Startups";
+  if (/fmcg|fast.?moving/.test(lower)) return "FMCG";
+  if (/jewel|gold|diamond/.test(lower)) return "Jewellery";
+  if (/auto|car|bike|vehicle|dealer/.test(lower)) return "Automobile";
+  if (/fashion|apparel|ethnic|boutique|garment/.test(lower)) return "Fashion";
+  return raw;
+}
+
 function matchesFilter(lead) {
   if (filter === "all") return true;
   if (filter === "to_send") return isToBeSent(lead);
@@ -116,6 +143,11 @@ function matchesFilter(lead) {
   if (filter === "failed") return lead.status === "failed";
   if (filter === "public") return isPublic(lead);
   return true;
+}
+
+function matchesIndustry(lead) {
+  if (industryFilter === "all") return true;
+  return normalizeIndustry(lead.industry) === industryFilter;
 }
 
 function matchesDate(lead) {
@@ -159,6 +191,7 @@ function filteredLeads() {
   const q = searchEl.value.trim().toLowerCase();
   return allLeads
     .filter(matchesFilter)
+    .filter(matchesIndustry)
     .filter(matchesDate)
     .filter((lead) => matchesSearch(lead, q))
     .slice()
@@ -167,6 +200,23 @@ function filteredLeads() {
       const bTime = Date.parse(leadDateIso(b) || b.updatedAt || 0) || 0;
       return bTime - aTime;
     });
+}
+
+function renderIndustryFilters() {
+  const present = new Set(allLeads.map((l) => normalizeIndustry(l.industry)));
+  const labels = [
+    ...FOCUS_INDUSTRIES,
+    ...[...present].filter((i) => i && i !== "Other" && !FOCUS_INDUSTRIES.includes(i)).sort(),
+  ];
+  industryFiltersEl.innerHTML = [
+    `<button type="button" class="filter industry-chip${industryFilter === "all" ? " is-active" : ""}" data-industry="all">All industries</button>`,
+    ...labels.map(
+      (label) =>
+        `<button type="button" class="filter industry-chip${
+          industryFilter === label ? " is-active" : ""
+        }" data-industry="${escapeHtml(label)}">${escapeHtml(label)}</button>`,
+    ),
+  ].join("");
 }
 
 function renderCronBar(health) {
@@ -455,6 +505,7 @@ async function refresh() {
   ]);
   allLeads = leads || [];
   renderStats(stats, health);
+  renderIndustryFilters();
   renderList();
 }
 
@@ -462,11 +513,19 @@ document.querySelector(".filters").addEventListener("click", (event) => {
   const button = event.target.closest("[data-filter]");
   if (!button) return;
   filter = button.dataset.filter;
-  for (const el of document.querySelectorAll(".filter")) {
+  for (const el of document.querySelectorAll(".filters > .filter")) {
     const active = el === button;
     el.classList.toggle("is-active", active);
     el.setAttribute("aria-selected", active ? "true" : "false");
   }
+  renderList();
+});
+
+industryFiltersEl.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-industry]");
+  if (!button) return;
+  industryFilter = button.dataset.industry || "all";
+  renderIndustryFilters();
   renderList();
 });
 
