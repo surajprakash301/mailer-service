@@ -395,8 +395,11 @@ router.post("/mail/send-live", requireCronSecret, asyncRoute(async (req, res) =>
   });
 }));
 
-router.post("/campaigns/run", requireCronSecret, asyncRoute(async (req, res) => {
-  const opts = {};
+router.post("/campaigns/run", requireCronSecret, asyncRoute(handleCampaignRun));
+/** GET supported so cron-job.org URL-only jobs work with ?cronSecret= */
+router.get("/campaigns/run", requireCronSecret, asyncRoute(handleCampaignRun));
+
+async function handleCampaignRun(req, res) {
   const sync = req.query?.sync === "1" || req.body?.sync === true;
   const verbose = req.query?.verbose === "1" || req.body?.verbose === true;
 
@@ -445,7 +448,7 @@ router.post("/campaigns/run", requireCronSecret, asyncRoute(async (req, res) => 
 
   const report = await run();
   res.status(200).json(verbose ? { ok: true, report: compactSendReport(report) } : compactSendReport(report));
-}));
+}
 
 /** External schedulers (GitHub Actions / cron-job.org) can stamp health without a full job. */
 router.post("/cron/record", requireCronSecret, asyncRoute(async (req, res) => {

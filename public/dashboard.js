@@ -227,26 +227,99 @@ function renderCronBar(health) {
   const gather = runs.gather || runs.morningGather || null;
   const send = runs.send || runs.campaign || null;
   const pills = [];
+  const alerts = [];
+
+  const gatherAt = gather?.at || gather?.finishedAt || null;
+  const sendAt = send?.at || send?.finishedAt || null;
+  const gatherAgeH = gatherAt ? (Date.now() - Date.parse(gatherAt)) / 36e5 : Infinity;
+  const sendFailed = send?.status === "failed" || Boolean(send?.error);
+
+  if (gatherAgeH > 20) {
+    alerts.push(
+      `<span class="cron-alert">Gather did not run today — enable <strong>Loky gather</strong> on cron-job.org (it shows Inactive)</span>`,
+    );
+  }
+  if (sendFailed) {
+    alerts.push(
+      `<span class="cron-alert">Last send failed${
+        send.error ? `: ${escapeHtml(String(send.error).slice(0, 120))}` : ""
+      }. Use POST + x-cron-secret header (or ?cronSecret=…).</span>`,
+    );
+  }
+  if ((health.statsHint?.toSend ?? null) === 0 && (health.statsHint?.gathered ?? 1) === 0) {
+    // optional — skip if we don't have stats on health
+  }
+
   if (gather?.at || gather?.finishedAt) {
     pills.push(
-      `<span class="cron-pill">Last gather <strong>${escapeHtml(formatWhen(gather.at || gather.finishedAt))}</strong>${
-        gather.summary?.added != null ? ` · +${escapeHtml(gather.summary.added)}` : ""
+      `<span class="cron-pill${gather?.status === "failed" ? " is-bad" : ""}">Last gather <strong>${escapeHtml(
+        formatWhen(gather.at || gather.finishedAt),
+      )}</strong>${gather.summary?.added != null ? ` · +${escapeHtml(gather.summary.added)}` : gather.added != null ? ` · +${escapeHtml(gather.added)}` : ""}${
+        gather.status === "failed" ? " · failed" : ""
       }</span>`,
     );
   }
   if (send?.at || send?.finishedAt) {
     pills.push(
-      `<span class="cron-pill">Last send <strong>${escapeHtml(formatWhen(send.at || send.finishedAt))}</strong>${
-        send.summary?.sent != null ? ` · ${escapeHtml(send.summary.sent)} mailed` : ""
-      }</span>`,
+      `<span class="cron-pill${sendFailed ? " is-bad" : ""}">Last send <strong>${escapeHtml(
+        formatWhen(send.at || send.finishedAt),
+      )}</strong>${
+        send.sent != null ? ` · ${escapeHtml(send.sent)} mailed` : send.summary?.sent != null ? ` · ${escapeHtml(send.summary.sent)} mailed` : ""
+      }${sendFailed ? " · failed" : ""}</span>`,
     );
   }
   cronBarEl.innerHTML = `
     <a class="cron-link" href="${CRON_CONSOLE_URL}" target="_blank" rel="noopener noreferrer">
       cron-job.org console ↗
     </a>
+    <div class="cron-actions">
+      <button type="button" class="ghost compact" id="btn-run-gather">Run gather now</button>
+      <button type="button" class="ghost compact" id="btn-run-send">Run send now</button>
+    </div>
     <div class="cron-runs">${pills.join("") || `<span class="cron-pill">No cron run history yet</span>`}</div>
+    ${alerts.length ? `<div class="cron-alerts">${alerts.join("")}</div>` : ""}
   `;
+  document.getElementById("btn-run-gather")?.addEventListener("click", () => triggerCronJob("gather"));
+  document.getElementById("btn-run-send")?.addEventListener("click", () => triggerCronJob("send"));
+}
+
+function getCronSecret() {
+  const key = "loky_cron_secret";
+  let secret = sessionStorage.getItem(key) || "";
+  if (!secret) {
+    secret = window.prompt("Paste CRON_SECRET (same as Render env — stored in this tab only)") || "";
+    if (secret) sessionStorage.setItem(key, secret.trim());
+  }
+  return secret.trim();
+}
+
+async function triggerCronJob(job) {
+  const secret = getCronSecret();
+  if (!secret) {
+    metaEl.textContent = "Cron secret required to run gather/send";
+    return;
+  }
+  const path = job === "gather" ? "/pipeline/gather" : "/campaigns/run";
+  metaEl.textContent = `Starting ${job}…`;
+  try {
+    const res = await fetch(`/api${path}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-cron-secret": secret,
+      },
+      body: "{}",
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      if (res.status === 401) sessionStorage.removeItem("loky_cron_secret");
+      throw new Error(data.error || res.statusText);
+    }
+    metaEl.textContent = data.note || `${job} accepted — refresh in a few minutes`;
+    setTimeout(() => refresh().catch(() => undefined), 8000);
+  } catch (err) {
+    metaEl.textContent = err.message;
+  }
 }
 
 function renderStats(stats, health) {

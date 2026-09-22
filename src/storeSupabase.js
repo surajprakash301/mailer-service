@@ -84,6 +84,25 @@ function throwSb(context, error) {
   throw Object.assign(new Error(`${context}: ${msg}.${hint}`), { status: 502, cause: error });
 }
 
+function isMissingEmployeesColumn(error) {
+  const msg = String(error?.message || error || "");
+  return /employees/i.test(msg) && /column|schema cache|does not exist/i.test(msg);
+}
+
+async function writeWithEmployeesFallback(operation, row) {
+  const result = await operation(row);
+  if (!result.error) return result;
+  if (!isMissingEmployeesColumn(result.error) || !Object.prototype.hasOwnProperty.call(row, "employees")) {
+    return result;
+  }
+  const { employees: _drop, ...withoutEmployees } = row;
+  logError(
+    "supabase.employeesColumnMissing",
+    new Error("employees column missing — retrying write without it. Run migrate SQL."),
+  );
+  return operation(withoutEmployees);
+}
+
 /** Partial lead/patch → DB columns (only defined keys). */
 export function leadToRow(lead = {}, { forInsert = false } = {}) {
   const row = {};
@@ -198,11 +217,10 @@ export async function createLead(fields) {
     throw Object.assign(new Error("A lead with this email already exists"), { status: 409 });
   }
 
-  const { data, error } = await getSupabase()
-    .from(table())
-    .insert(leadToRow(lead, { forInsert: true }))
-    .select("*")
-    .single();
+  const { data, error } = await writeWithEmployeesFallback(
+    (row) => getSupabase().from(table()).insert(row).select("*").single(),
+    leadToRow(lead, { forInsert: true }),
+  );
   if (error) throwSb("supabase.createLead", error);
   return rowToLead(data);
 }
@@ -253,12 +271,11 @@ export async function upsertLead(fields, input = {}) {
         : parseEmployeesField(existing.employees),
       updatedAt: stamp,
     };
-    const { data, error } = await getSupabase()
-      .from(table())
-      .update(leadToRow(patch))
-      .eq("company", existing.company)
-      .select("*")
-      .single();
+    const { data, error } = await writeWithEmployeesFallback(
+      (row) =>
+        getSupabase().from(table()).update(row).eq("company", existing.company).select("*").single(),
+      leadToRow(patch),
+    );
     if (error) throwSb("supabase.upsertLead.update", error);
     return rowToLead(data);
   }
@@ -290,11 +307,10 @@ export async function upsertLead(fields, input = {}) {
     updatedAt: stamp,
   };
 
-  const { data, error } = await getSupabase()
-    .from(table())
-    .insert(leadToRow(lead, { forInsert: true }))
-    .select("*")
-    .single();
+  const { data, error } = await writeWithEmployeesFallback(
+    (row) => getSupabase().from(table()).insert(row).select("*").single(),
+    leadToRow(lead, { forInsert: true }),
+  );
   if (error) throwSb("supabase.upsertLead.insert", error);
   return rowToLead(data);
 }
@@ -339,12 +355,11 @@ export async function updateLead(id, patch) {
   const current = await getLead(id);
   if (!current) return null;
 
-  const { data, error } = await getSupabase()
-    .from(table())
-    .update(leadToRow(next))
-    .eq("company", current.company)
-    .select("*")
-    .maybeSingle();
+  const { data, error } = await writeWithEmployeesFallback(
+    (row) =>
+      getSupabase().from(table()).update(row).eq("company", current.company).select("*").maybeSingle(),
+    leadToRow(next),
+  );
   if (error) throwSb("supabase.updateLead", error);
   return rowToLead(data);
 }

@@ -105,18 +105,16 @@ You can still use [cron-job.org](https://cron-job.org) instead of (or in additio
 | Every day **07:00** | `POST` | `https://YOUR-APP.onrender.com/api/pipeline/gather` | `x-cron-secret: YOUR_CRON_SECRET` |
 | Every day **08:45** | `POST` | `https://YOUR-APP.onrender.com/api/campaigns/run` | `x-cron-secret: YOUR_CRON_SECRET` |
 
-**cron-job.org setup (fixes 401 + timeout):**
-1. Request method: **POST**
-2. Enable **Custom headers** → add:
+**cron-job.org setup (fixes 401 + Failed HTTP error):**
+1. **Enable** both jobs (gather must not show Inactive / grey X)
+2. Request method: **POST** (GET also works if the secret is in the URL)
+3. Enable **Custom headers** → add:
    - `x-cron-secret` = same value as Render env `CRON_SECRET`
    - `Content-Type` = `application/json`
-3. Request body: `{}`
-4. **Advanced → Timeout: at least 60s** (app now returns **202 Accepted** fast; gather finishes in background)
-5. Schedule gather **before** send (07:00 gather, 08:45 send), timezone Asia/Kolkata
-
-Alternate auth if custom headers are awkward: `Authorization: Bearer YOUR_CRON_SECRET`
-
-Responses are compact by default (avoids “output too large”). Add `?verbose=1` only when debugging.
+4. Request body: `{}`
+5. Or put the secret in the URL: `…/api/pipeline/gather?cronSecret=YOUR_SECRET`
+6. Schedule gather **before** send (e.g. 09:00 gather, 10:00 send), timezone Asia/Kolkata
+7. If the job stays Inactive after many failures, open it → toggle **Enable** on again
 
 ### 1. Render
 

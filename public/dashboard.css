@@ -386,6 +386,34 @@ h1 {
 
 .cron-pill strong { color: var(--ink); font-weight: 700; }
 
+.cron-pill.is-bad {
+  border-color: #fecaca;
+  background: #fef2f2;
+  color: #991b1b;
+}
+
+.cron-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.cron-alerts {
+  width: 100%;
+  display: grid;
+  gap: 6px;
+}
+
+.cron-alert {
+  display: block;
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  color: #9a3412;
+  border-radius: 12px;
+  padding: 8px 12px;
+  font-size: 0.82rem;
+}
+
 .controls {
   margin-top: 22px;
   display: flex;
