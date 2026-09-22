@@ -161,6 +161,22 @@ async function readCronRunsFromMetaRow() {
 }
 
 async function writeCronRunsToMetaRow(next) {
+  // Re-read immediately before write to reduce gather/send stamp races on one notes blob.
+  let merged = next;
+  try {
+    const latest = await readCronRunsFromMetaRow();
+    merged = {
+      gather: next.gather || latest.gather || null,
+      send: next.send || latest.send || null,
+    };
+    // Prefer the explicitly updated job from `next`
+    if (next.gather && next.send) merged = next;
+    else if (next.gather && !next.send) merged = { ...latest, gather: next.gather };
+    else if (next.send && !next.gather) merged = { ...latest, send: next.send };
+  } catch {
+    // fall through with next
+  }
+
   // emailer-table has no id column — company is the unique key
   const payload = {
     company: CRON_META_COMPANY,
@@ -169,7 +185,7 @@ async function writeCronRunsToMetaRow(next) {
     email: CRON_META_EMAIL,
     email_source: "system",
     industry: "system",
-    notes: JSON.stringify(next),
+    notes: JSON.stringify(merged),
     status: "system",
     operator: "system",
     network: "Loky Media Patna DOOH",

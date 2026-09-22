@@ -420,8 +420,13 @@ async function handleCampaignRun(req, res) {
   };
 
   // cron-job.org often treats only HTTP 200 as success (202 can show as Failed).
-  // Always ack fast with a tiny body — never return the full report to the cron UI.
+  // Stamp "started" BEFORE the response so status survives cold deploys / disconnects.
   if (!sync) {
+    await recordCronRun("send", {
+      status: "started",
+      trigger: "api-async",
+      note: "accepted — running in background",
+    });
     res.status(200).json({
       ok: true,
       job: "send",
@@ -429,11 +434,6 @@ async function handleCampaignRun(req, res) {
       note: "Send running in background. Check /api/health lastCronRuns.send shortly.",
     });
     setImmediate(() => {
-      recordCronRun("send", {
-        status: "started",
-        trigger: "api-async",
-        note: "accepted — running in background",
-      }).catch((err) => logError("campaigns.run.recordStart", err));
       run().catch(async (err) => {
         logError("campaigns.run.async", err);
         await recordCronRun("send", {
@@ -525,8 +525,13 @@ async function handleGather(req, res) {
   };
 
   // Default async + HTTP 200 (cron-job.org marks 202 as Failed HTTP error).
-  // Tiny JSON only — never stream the full gather report to the cron console.
+  // Stamp "started" BEFORE the response so dashboard/health show today's run immediately.
   if (!sync) {
+    await recordCronRun("gather", {
+      status: "started",
+      trigger: "api-async",
+      note: "accepted — running in background",
+    });
     res.status(200).json({
       ok: true,
       job: "gather",
@@ -536,11 +541,6 @@ async function handleGather(req, res) {
       note: "Gather running in background. Check /api/health lastCronRuns.gather in a few minutes.",
     });
     setImmediate(() => {
-      recordCronRun("gather", {
-        status: "started",
-        trigger: "api-async",
-        note: "accepted — running in background",
-      }).catch((err) => logError("pipeline.gather.recordStart", err));
       run().catch(async (err) => {
         logError("pipeline.gather.async", err);
         await recordCronRun("gather", {
