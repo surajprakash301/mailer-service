@@ -392,6 +392,12 @@ h1 {
   color: #991b1b;
 }
 
+.cron-pill.is-live {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+  color: #166534;
+}
+
 .cron-actions {
   display: flex;
   flex-wrap: wrap;

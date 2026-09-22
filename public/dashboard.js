@@ -89,7 +89,45 @@ function leadDateIso(lead) {
   if (field === "sent") return lead.sentAt || "";
   if (field === "followed") return lead.followedAt || lead.generatedAt || lead.updatedAt || "";
   if (field === "updated") return lead.updatedAt || lead.createdAt || "";
-  return lead.createdAt || lead.updatedAt || "";
+  if (field === "added") return lead.createdAt || lead.updatedAt || "";
+  // activity (default): newest of create / update / follow / send
+  const stamps = [lead.sentAt, lead.followedAt, lead.generatedAt, lead.updatedAt, lead.createdAt]
+    .filter(Boolean)
+    .map((iso) => ({ iso, t: Date.parse(iso) || 0 }))
+    .sort((a, b) => b.t - a.t);
+  return stamps[0]?.iso || "";
+}
+
+function leadActivityKeys(lead) {
+  return [
+    lead.createdAt,
+    lead.updatedAt,
+    lead.followedAt,
+    lead.generatedAt,
+    lead.sentAt,
+  ]
+    .map((iso) => istDateKey(iso))
+    .filter(Boolean);
+}
+
+function matchesDate(lead) {
+  const from = dateFromEl.value;
+  const to = dateToEl.value;
+  if (!from && !to) return true;
+  if (dateFieldEl.value === "activity") {
+    const keys = leadActivityKeys(lead);
+    if (!keys.length) return false;
+    return keys.some((key) => {
+      if (from && key < from) return false;
+      if (to && key > to) return false;
+      return true;
+    });
+  }
+  const key = istDateKey(leadDateIso(lead));
+  if (!key) return false;
+  if (from && key < from) return false;
+  if (to && key > to) return false;
+  return true;
 }
 
 function isMock(lead) {
@@ -148,17 +186,6 @@ function matchesFilter(lead) {
 function matchesIndustry(lead) {
   if (industryFilter === "all") return true;
   return normalizeIndustry(lead.industry) === industryFilter;
-}
-
-function matchesDate(lead) {
-  const from = dateFromEl.value;
-  const to = dateToEl.value;
-  if (!from && !to) return true;
-  const key = istDateKey(leadDateIso(lead));
-  if (!key) return false;
-  if (from && key < from) return false;
-  if (to && key > to) return false;
-  return true;
 }
 
 function matchesSearch(lead, q) {
@@ -233,10 +260,17 @@ function renderCronBar(health) {
   const sendAt = send?.at || send?.finishedAt || null;
   const gatherAgeH = gatherAt ? (Date.now() - Date.parse(gatherAt)) / 36e5 : Infinity;
   const sendFailed = send?.status === "failed" || Boolean(send?.error);
+  const gatherRunning = gather?.status === "started";
+  const sendRunning = send?.status === "started";
 
-  if (gatherAgeH > 20) {
+  if (!gatherRunning && gatherAgeH > 20) {
     alerts.push(
       `<span class="cron-alert">Gather did not run today — enable <strong>Loky gather</strong> on cron-job.org (it shows Inactive)</span>`,
+    );
+  }
+  if (gatherRunning) {
+    alerts.push(
+      `<span class="cron-alert">Gather is running now — refresh in a few minutes. New leads appear under Date field → Any activity + Today.</span>`,
     );
   }
   if (sendFailed) {
@@ -246,27 +280,26 @@ function renderCronBar(health) {
       }. Use POST + x-cron-secret header (or ?cronSecret=…).</span>`,
     );
   }
-  if ((health.statsHint?.toSend ?? null) === 0 && (health.statsHint?.gathered ?? 1) === 0) {
-    // optional — skip if we don't have stats on health
-  }
 
   if (gather?.at || gather?.finishedAt) {
     pills.push(
-      `<span class="cron-pill${gather?.status === "failed" ? " is-bad" : ""}">Last gather <strong>${escapeHtml(
-        formatWhen(gather.at || gather.finishedAt),
-      )}</strong>${gather.summary?.added != null ? ` · +${escapeHtml(gather.summary.added)}` : gather.added != null ? ` · +${escapeHtml(gather.added)}` : ""}${
-        gather.status === "failed" ? " · failed" : ""
-      }</span>`,
+      `<span class="cron-pill${gather?.status === "failed" ? " is-bad" : gatherRunning ? " is-live" : ""}">${
+        gatherRunning ? "Gather running" : "Last gather"
+      } <strong>${escapeHtml(formatWhen(gather.at || gather.finishedAt))}</strong>${
+        gather.added != null ? ` · +${escapeHtml(gather.added)}` : ""
+      }${gather.status === "failed" ? " · failed" : ""}</span>`,
     );
   }
   if (send?.at || send?.finishedAt) {
     pills.push(
-      `<span class="cron-pill${sendFailed ? " is-bad" : ""}">Last send <strong>${escapeHtml(
-        formatWhen(send.at || send.finishedAt),
-      )}</strong>${
-        send.sent != null ? ` · ${escapeHtml(send.sent)} mailed` : send.summary?.sent != null ? ` · ${escapeHtml(send.summary.sent)} mailed` : ""
+      `<span class="cron-pill${sendFailed ? " is-bad" : sendRunning ? " is-live" : ""}">${
+        sendRunning ? "Send running" : "Last send"
+      } <strong>${escapeHtml(formatWhen(send.at || send.finishedAt))}</strong>${
+        send.sent != null ? ` · ${escapeHtml(send.sent)} mailed` : ""
       }${sendFailed ? " · failed" : ""}</span>`,
     );
+  } else if (!send) {
+    pills.push(`<span class="cron-pill">Last send <strong>not recorded</strong></span>`);
   }
   cronBarEl.innerHTML = `
     <a class="cron-link" href="${CRON_CONSOLE_URL}" target="_blank" rel="noopener noreferrer">
@@ -281,6 +314,11 @@ function renderCronBar(health) {
   `;
   document.getElementById("btn-run-gather")?.addEventListener("click", () => triggerCronJob("gather"));
   document.getElementById("btn-run-send")?.addEventListener("click", () => triggerCronJob("send"));
+
+  if (gatherRunning || sendRunning) {
+    clearTimeout(window.__lokyCronPoll);
+    window.__lokyCronPoll = setTimeout(() => refresh().catch(() => undefined), 20000);
+  }
 }
 
 function getCronSecret() {
@@ -569,9 +607,22 @@ function renderList() {
   const leads = filteredLeads();
   listCountEl.textContent = String(leads.length);
   if (!leads.length) {
-    leadsEl.innerHTML = `<div class="empty"><p>No leads match this filter${
-      dateFromEl.value || dateToEl.value ? " / date range" : ""
-    }.</p></div>`;
+    const dateOn = Boolean(dateFromEl.value || dateToEl.value);
+    const field = dateFieldEl.value;
+    const fieldLabel =
+      field === "sent"
+        ? "Sent"
+        : field === "followed"
+          ? "Followed"
+          : field === "updated"
+            ? "Updated"
+            : field === "activity"
+              ? "Any activity"
+              : "Added";
+    const tip = dateOn
+      ? `No leads with <strong>${escapeHtml(fieldLabel)}</strong> date in this range. Resend also only lists mail that was actually delivered — Sent today is 0 until send runs on new leads. Try Date field → <strong>Any activity</strong>, or clear the date filter.`
+      : "No leads match this filter.";
+    leadsEl.innerHTML = `<div class="empty"><p>${tip}</p></div>`;
     return;
   }
 
@@ -657,6 +708,7 @@ function applyPreset(preset) {
     dateToEl.value = "";
   } else if (preset === "today") {
     const t = todayIstKey();
+    dateFieldEl.value = "activity";
     dateFromEl.value = t;
     dateToEl.value = t;
   } else if (preset === "yesterday") {
